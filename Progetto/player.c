@@ -26,7 +26,7 @@
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 120
 
-enum cmd{START_ROUND = 0, END_ROUND = 1};
+enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3};
 
 struct piece {
 	char type;
@@ -48,6 +48,8 @@ struct Pair place_random();
 
 void handle_term(int signal);
 void find_flags(struct Pair *flags);
+int min_dist_flag(struct self_pawns pawn);
+int dist_flag(struct Pair flags, struct self_pawns pawn);
 
 struct piece *board;
 struct sembuf sem_board;
@@ -62,7 +64,7 @@ int sem_board_id, shm_id, msg_id;
 
 int main(int argc, char * argv[], char** envp){
 
-	int i, num_flags;
+	int i, num_flags, flag_to_catch;
 	long rcv, r;
 
 	pid_t child_pid;
@@ -155,6 +157,16 @@ int main(int argc, char * argv[], char** envp){
 					num_flags = atoi(msg_queue.mtext);
 					flags = (struct Pair*)malloc(sizeof(struct Pair)*num_flags);
 					find_flags(flags);
+					for(i = 0; i < sizeof(self_pawns); i++){
+						flag_to_catch = min_dist_flag(self_pawns[i]);
+						printf("sending go to %d\n", flag_to_catch);
+						msg_queue.mtype = (long)(self_pawns[i].pid);
+						sprintf(msg_queue.mtext, "%d", MOVE_TO);
+						msgsnd(msg_id, &msg_queue, LENGTH, 0);
+						msg_queue.mtype = (long)(self_pawns[i].pid);
+						sprintf(msg_queue.mtext, "%d", flag_to_catch);
+						msgsnd(msg_id, &msg_queue, LENGTH, 0);
+					}
 					break;
 				case END_ROUND:
 					break;
@@ -166,6 +178,10 @@ int main(int argc, char * argv[], char** envp){
 	exit(EXIT_SUCCESS);
 }
 
+/**
+ * [place_random description]
+ * @return [description]
+ */
 struct Pair place_random(){
 	int ret_val;
 	int r;
@@ -194,6 +210,10 @@ struct Pair place_random(){
 	return pair;
 }
 
+/**
+ * [handle_term description]
+ * @param signal [description]
+ */
 void handle_term(int signal){
 	int i, status;
 	pid_t child_pid;
@@ -225,7 +245,23 @@ void find_flags(struct Pair *flags){
 			flags[j].x = board[i].x;
 			flags[j].y = board[i].y;
 			j++;
-
 		}
 	}
+}
+
+/**
+ * [min_dist_flag description]
+ * @param  pawn [description]
+ * @return      [description]
+ */
+int min_dist_flag(struct self_pawns pawn){
+	int i, j;
+	for(i = 0; i < sizeof(flags); i++){
+		dist_flag(flags[i], pawn);
+	}
+	return 0;
+}
+
+int dist_flag(struct Pair flag, struct self_pawns pawn){
+	return 0;
 }

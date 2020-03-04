@@ -26,6 +26,8 @@
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 120
 
+enum cmd{MOVE_TO = 2, START_MOVING = 3};
+
 struct piece {
 	char type;
 	int value;
@@ -34,6 +36,7 @@ struct piece {
 	};
 
 void handle_term(int signal);
+void move_to(int go_to);
 
 struct piece *board;
 struct sembuf sem_board;
@@ -43,6 +46,9 @@ int sem_board_id, shm_id, msg_id;
 int self_x, self_y, self_ind;
 
 int main(int argc, char * argv[], char** envp){
+
+	long rcv;
+	int go_to;
 
 	struct msgbuf msg_queue;
 	struct sigaction sa;
@@ -85,7 +91,8 @@ int main(int argc, char * argv[], char** envp){
 	msg_id = msgget(msg_key, 0600);
 	if (msg_id == -1) TEST_ERROR;
 
-	if(msgrcv(msg_id, &msg_queue, LENGTH, (long) getpid(), 0)>0) {
+	rcv = (long) getpid();
+	if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 		split_msg = strtok (msg_queue.mtext," ");
 		self_x = atoi(split_msg);
 		split_msg = strtok (NULL, " ");
@@ -93,11 +100,36 @@ int main(int argc, char * argv[], char** envp){
 		self_ind = self_y * SO_BASE + self_x;
 		board[self_ind].value = getpid();
 	}
-	for(;;){}
+	for(;;){
+		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
+			switch (atoi(msg_queue.mtext)) {
+				case MOVE_TO:
+					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
+					go_to = atoi(msg_queue.mtext);
+					move_to(go_to);
+					printf("go to %d\n", go_to);
+					break;
+				default:
+					break;
+			}
+		}
+	}
 
 	exit(EXIT_SUCCESS);
 }
 
+/**
+ * [handle_term description]
+ * @param signal [description]
+ */
 void handle_term(int signal){
 	exit(EXIT_SUCCESS);
+}
+
+/**
+ * [go_to description]
+ * @param go_to [description]
+ */
+void move_to(int go_to){
+
 }
