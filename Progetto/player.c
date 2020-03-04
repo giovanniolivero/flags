@@ -47,6 +47,7 @@ struct self_pawns{
 struct Pair place_random();
 
 void handle_term(int signal);
+void find_flags(struct Pair *flags);
 
 struct piece *board;
 struct sembuf sem_board;
@@ -61,7 +62,7 @@ int sem_board_id, shm_id, msg_id;
 
 int main(int argc, char * argv[], char** envp){
 
-	int i;
+	int i, num_flags;
 	long rcv, r;
 
 	pid_t child_pid;
@@ -150,17 +151,18 @@ int main(int argc, char * argv[], char** envp){
 		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 			switch (atoi(msg_queue.mtext)) {
 				case START_ROUND:
-					printf("Player -> START_ROUND\n");
+					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
+					num_flags = atoi(msg_queue.mtext);
+					flags = (struct Pair*)malloc(sizeof(struct Pair)*num_flags);
+					find_flags(flags);
 					break;
 				case END_ROUND:
-					printf("Player -> END_ROUND\n");
 					break;
 				default:
 					break;
 			}
 		}
 	}
-
 	exit(EXIT_SUCCESS);
 }
 
@@ -193,12 +195,37 @@ struct Pair place_random(){
 }
 
 void handle_term(int signal){
-	int i;
-	printf("Player -> END_GAME\n");
+	int i, status;
+	pid_t child_pid;
+
 	for(i = 0; i< SO_NUM_P; i++){
-		printf("Player -> pawn to kill: %d!\n", self_pawns[i].pid);
 		kill(self_pawns[i].pid, SIGTERM);
-		sleep(2);
 	}
-	printf("Player -> SIGTERM: bye!\n");
+	while ((child_pid = wait(&status)) != -1) {
+		printf("terminated pawns process...\n");
+	}
+	if (errno == ECHILD) {
+		free(self_pawns);
+		free(flags);
+		exit(EXIT_SUCCESS);
+	} else {
+		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+}
+
+/**
+ * [find_flags description]
+ * @param flags [description]
+ */
+void find_flags(struct Pair *flags){
+	int i,j;
+	for(i = 0, j = 0; i < SO_BASE * SO_ALTEZZA; i++){
+		if(board[i].type == 'f'){
+			flags[j].x = board[i].x;
+			flags[j].y = board[i].y;
+			j++;
+
+		}
+	}
 }

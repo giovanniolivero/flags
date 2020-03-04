@@ -44,8 +44,6 @@ int self_x, self_y, self_ind;
 
 int main(int argc, char * argv[], char** envp){
 
-	long rcv;
-
 	struct msgbuf msg_queue;
 	struct sigaction sa;
 	sigset_t my_mask;
@@ -87,9 +85,7 @@ int main(int argc, char * argv[], char** envp){
 	msg_id = msgget(msg_key, 0600);
 	if (msg_id == -1) TEST_ERROR;
 
-	rcv = (long) getpid();
-
-	if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
+	if(msgrcv(msg_id, &msg_queue, LENGTH, (long) getpid(), 0)>0) {
 		split_msg = strtok (msg_queue.mtext," ");
 		self_x = atoi(split_msg);
 		split_msg = strtok (NULL, " ");
@@ -97,9 +93,11 @@ int main(int argc, char * argv[], char** envp){
 		self_ind = self_y * SO_BASE + self_x;
 		board[self_ind].value = getpid();
 	}
+	for(;;){}
+
 	exit(EXIT_SUCCESS);
 }
 
 void handle_term(int signal){
-	printf("Pawn -> SIGTERM: bye!\n");
+	exit(EXIT_SUCCESS);
 }

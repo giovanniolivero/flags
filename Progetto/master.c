@@ -40,11 +40,12 @@ typedef struct Player {
 	int score;
 	}Player;
 
-void fillEmpty();
-void printBoard();
-void endSimulation();
+void fill_empty();
+void print_board();
+void end_simulation();
 void new_round();
-int getIndex(pid_t player_pid);
+void ipc_rmv();
+int get_indedx(pid_t player_pid);
 
 extern char **environ;
 
@@ -53,7 +54,8 @@ Player *player;
 
 char *args[] = {"./player", NULL};
 
-int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G, SO_FLAG_MIN, SO_FLAG_MAX, SO_ROUND_SCORE;
+int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G,
+	SO_FLAG_MIN, SO_FLAG_MAX, SO_ROUND_SCORE;
 
 int shm_id, sem_board_id, msg_id;
 
@@ -87,7 +89,8 @@ int main(int argc, char * argv[], char** env){
 	sem_board.sem_num = SO_BASE*SO_ALTEZZA;
 	sem_board.sem_flg = 0;
 
-    shm_id = shmget(IPC_PRIVATE, sizeof(struct piece)*60*20, IPC_CREAT | IPC_EXCL | 0600);
+    shm_id = shmget(IPC_PRIVATE, sizeof(struct piece)*60*20,
+					IPC_CREAT | IPC_EXCL | 0600);
     board = (struct piece*) shmat(shm_id, NULL, 0);
 
     shm_file = fopen(FILENAME_SHM, "w");
@@ -128,8 +131,8 @@ int main(int argc, char * argv[], char** env){
 		return(-1);
 	}
 
-	fillEmpty();
-    printBoard();
+	fill_empty();
+    print_board();
 
 	printf("hey sono il master %d.\n", getpid());
 
@@ -159,10 +162,10 @@ int main(int argc, char * argv[], char** env){
 		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 	}
 
-	printBoard();
+	print_board();
     printf("\n");
     new_round();
-    endSimulation();
+    end_simulation();
 
     return 0;
 }
@@ -186,16 +189,17 @@ void new_round(){
 		else if (points == i) board[r].value = 1;
 		points = points - (board[r].value);
 	}
-	printBoard();
+	print_board();
   	printf("\n");
-
-
-	printf("%d\n", START_ROUND);
 
 	/*START_ROUND*/
 	for(i = 0; i < SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i].pid);
 		sprintf(msg_queue.mtext, "%d", START_ROUND);
+		msgsnd(msg_id, &msg_queue, LENGTH, 0);
+
+		msg_queue.mtype = (long)(player[i].pid);
+		sprintf(msg_queue.mtext, "%d", num_flags);
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
 
@@ -210,9 +214,9 @@ void new_round(){
 }
 
 /**
- * [fillEmpty description]
+ * [fill_empty description]
  */
-void fillEmpty(){
+void fill_empty(){
 	int i,j;
 
 	for(i=0;i<SO_ALTEZZA;i++){
@@ -228,9 +232,9 @@ void fillEmpty(){
 }
 
 /**
- * [printBoard description]
+ * [print_board description]
  */
-void printBoard(){
+void print_board(){
 	int a,b;
 
 	for(a=0;a<SO_ALTEZZA;a++){
@@ -238,7 +242,7 @@ void printBoard(){
         	if(board[a*SO_BASE + b].type == 'e'){
         		printf("#");
         	} else if(board[a*SO_BASE + b].type == 'p'){
-				switch(getIndex(board[a*SO_BASE + b].owner)){
+				switch(get_indedx(board[a*SO_BASE + b].owner)){
 					case 0:
 						printf("\033[1;31m");
 						printf("X");
@@ -274,32 +278,53 @@ void printBoard(){
 }
 
 /**
- * [endSimulation description]
+ * [end_simulation description]
  */
-void endSimulation(){
-	int i;
+void end_simulation(){
+	int i, status;
+	pid_t child_pid;
 
 	printf("END_GAME\n");
 	for(i=0; i<SO_NUM_G; i++){
 		printf("player -> %d score -> %d\n", player[i].pid, player[i].score);
 		kill(player[i].pid, SIGTERM);
 	}
-	shmctl(shm_id, IPC_RMID, NULL);
-	semctl(sem_board_id, 0, IPC_RMID);
-	msgctl(msg_id, IPC_RMID, NULL);
-	free(player);
+
+	printf("terminating...\n");
+
+	while ((child_pid = wait(&status)) != -1) {
+		printf("terminated player process...\n");
+	}
+	if (errno != ECHILD) {
+		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
+		ipc_rmv();
+		exit(EXIT_FAILURE);
+	}
+	ipc_rmv();
+	printf("BYE.\n");
+	exit(EXIT_SUCCESS);
 }
 
 /**
- * [getIndex description]
+ * [get_indedx description]
  * @param  player_pid [description]
  * @return            [description]
  */
-int getIndex(pid_t player_pid){
+int get_indedx(pid_t player_pid){
 	int i;
 
 	for(i = 0; i < SO_NUM_G; i++){
 		if (player[i].pid == player_pid) return i;
 	}
 	return -1;
+}
+
+/**
+ * [ipc_rmv description]
+ */
+void ipc_rmv(){
+	shmctl(shm_id, IPC_RMID, NULL);
+	semctl(sem_board_id, 0, IPC_RMID);
+	msgctl(msg_id, IPC_RMID, NULL);
+	free(player);
 }
