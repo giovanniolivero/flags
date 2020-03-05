@@ -33,10 +33,14 @@ struct piece {
 	int value;
 	int owner;
 	int x,y;
-	};
+};
+
+struct Pair{
+	int x, y;
+};
 
 void handle_term(int signal);
-void move_to(int go_to);
+void move_to(struct Pair move);
 
 struct piece *board;
 struct sembuf sem_board;
@@ -49,6 +53,7 @@ int main(int argc, char * argv[], char** envp){
 
 	long rcv;
 	int go_to;
+	struct Pair move;
 
 	struct msgbuf msg_queue;
 	struct sigaction sa;
@@ -105,16 +110,19 @@ int main(int argc, char * argv[], char** envp){
 			switch (atoi(msg_queue.mtext)) {
 				case MOVE_TO:
 					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
-					go_to = atoi(msg_queue.mtext);
-					move_to(go_to);
-					printf("go to %d\n", go_to);
+					split_msg = strtok (msg_queue.mtext," ");
+					move.x = atoi(split_msg);
+					split_msg = strtok (NULL, " ");
+					move.y =  atoi(split_msg);
+					self_ind = self_y * SO_BASE + self_x;
+					board[self_ind].value = getpid();
+					move_to(move);
 					break;
 				default:
 					break;
 			}
 		}
 	}
-
 	exit(EXIT_SUCCESS);
 }
 
@@ -130,6 +138,5 @@ void handle_term(int signal){
  * [go_to description]
  * @param go_to [description]
  */
-void move_to(int go_to){
-
+void move_to(struct Pair move){
 }

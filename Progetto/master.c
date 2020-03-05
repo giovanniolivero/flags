@@ -33,12 +33,12 @@ struct piece {
 	int value;
 	pid_t owner;
 	int x,y;
-	};
+};
 
 typedef struct Player {
 	pid_t pid;
 	int score;
-	}Player;
+}Player;
 
 void fill_empty();
 void print_board();
