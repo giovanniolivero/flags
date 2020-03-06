@@ -168,8 +168,19 @@ int main(int argc, char * argv[], char** envp){
 						sprintf(msg_queue.mtext, "%d %d", move.x, move.y);
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
+					printf("CAN MOVE?\n");
+					msg_queue.mtype = (long) getppid();
+					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
 				case END_ROUND:
+					break;
+				case START_MOVING:
+					for(i = 0; i < SO_NUM_P; i++){
+						msg_queue.mtype = (long)(self_pawns[i].pid);
+						sprintf(msg_queue.mtext, "%d", START_MOVING);
+						msgsnd(msg_id, &msg_queue, LENGTH, 0);
+					}
+					printf("SAID MOVE\n");
 					break;
 				default:
 					break;

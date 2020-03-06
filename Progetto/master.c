@@ -26,7 +26,7 @@
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 120
 
-enum cmd{START_ROUND = 0, END_ROUND = 1};
+enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3};
 
 struct piece {
 	char type;
@@ -175,6 +175,7 @@ int main(int argc, char * argv[], char** env){
  */
 void new_round(){
 	int i, r, points, num_flags;
+	long rcv;
 
 	srand(time(NULL));
 	num_flags = SO_FLAG_MIN + rand() % ((SO_FLAG_MAX+1) - SO_FLAG_MIN);
@@ -193,6 +194,7 @@ void new_round(){
   	printf("\n");
 
 	/*START_ROUND*/
+	printf("STARTING...\n");
 	for(i = 0; i < SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i].pid);
 		sprintf(msg_queue.mtext, "%d", START_ROUND);
@@ -203,8 +205,20 @@ void new_round(){
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
 
-	sleep(5);
+	printf("WAITIN...\n");
+	rcv = (long) getpid();
+	for(i = 0; i < SO_NUM_G; i++){
+		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
+   	}
 
+	printf("SAYING...\n");
+   	for(i = 0; i < SO_NUM_G; i++){
+	   msg_queue.mtype = (long)(player[i].pid);
+	   sprintf(msg_queue.mtext, "%d", START_MOVING);
+	   msgsnd(msg_id, &msg_queue, LENGTH, 0);
+   	}
+	
+	sleep(5);
 	/*END_ROUND*/
 	for(i = 0; i < SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i].pid);

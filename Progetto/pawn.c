@@ -27,6 +27,7 @@
 #define LENGTH 120
 
 enum cmd{MOVE_TO = 2, START_MOVING = 3};
+enum dir{LEFT = -1, DOWN = -1, RIGHT = -1, UP = 1, NONE = 0};
 
 struct piece {
 	char type;
@@ -41,11 +42,19 @@ struct Pair{
 
 void handle_term(int signal);
 void move_to(struct Pair move);
+void step_x(int dir);
+void step_y(int dir);
+void path_to_flag(
+	int start_x, int start_y,
+	int delta_x, int delta_y,
+	int dir_x, int dir_y
+);
+struct Pair delta_flag(int flag_x, int flag_y);
 
 struct piece *board;
 struct sembuf sem_board;
 
-int SO_BASE;
+int SO_BASE, SO_N_MOVES;
 int sem_board_id, shm_id, msg_id;
 int self_x, self_y, self_ind;
 
@@ -74,6 +83,7 @@ int main(int argc, char * argv[], char** envp){
 	sigaction(SIGTERM, &sa, NULL);
 
 	SO_BASE = atoi(getenv("SO_BASE"));
+	SO_N_MOVES = atoi(getenv("SO_N_MOVES"));
 
 	shm_file = fopen(FILENAME_SHM, "r");
 	fscanf(shm_file, "%d", &shm_id);
@@ -97,6 +107,7 @@ int main(int argc, char * argv[], char** envp){
 	if (msg_id == -1) TEST_ERROR;
 
 	rcv = (long) getpid();
+	printf("HEIIII\n");
 	if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 		split_msg = strtok (msg_queue.mtext," ");
 		self_x = atoi(split_msg);
@@ -118,6 +129,9 @@ int main(int argc, char * argv[], char** envp){
 					board[self_ind].value = getpid();
 					move_to(move);
 					break;
+				case START_MOVING:
+					printf("GOTTA GO\n");
+					break;
 				default:
 					break;
 			}
@@ -135,8 +149,83 @@ void handle_term(int signal){
 }
 
 /**
- * [go_to description]
- * @param go_to [description]
+ * [move_to description]
+ * @param move [description]
  */
 void move_to(struct Pair move){
+	struct Pair delta;
+	int dist;
+
+	srand(time(NULL));
+	delta = delta_flag(move.x, move.y);
+	dist = abs(delta.x) + abs(delta.y);
+	if(dist <= SO_N_MOVES){
+			if(delta.x == 0 && delta.y > 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, NONE, UP);
+			}
+			else if(delta.x > 0 && delta.y == 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, NONE);
+			}
+			else if(delta.x == 0 && delta.y < 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, NONE, DOWN);
+			}
+			else if(delta.x < 0 && delta.y == 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, NONE);
+			}
+			else if(delta.x > 0 && delta.y > 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, UP);
+			}
+			else if(delta.x > 0 && delta.y < 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, DOWN);
+			}
+			else if(delta.x < 0 && delta.y > 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, UP);
+			}
+			else if(delta.x < 0 && delta.y < 0){
+				path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, DOWN);
+			}
+	}
+}
+
+/**
+ * [delta_flag description]
+ * @param  flag_x [description]
+ * @param  flag_y [description]
+ * @return        [description]
+ */
+struct Pair delta_flag(int flag_x, int flag_y){
+	int dist_x, dist_y;
+	struct Pair delta;
+
+	delta.x = flag_x - self_x;
+	delta.y = flag_y - self_y;
+	return delta;
+}
+
+/**
+ * [path_to_flag description]
+ * @param start_x [description]
+ * @param start_y [description]
+ * @param delta_x [description]
+ * @param delta_y [description]
+ * @param dir_y   [description]
+ * @param dir_x   [description]
+ */
+void path_to_flag(int start_x, int start_y,
+	int delta_x, int delta_y,
+	int dir_y, int dir_x
+){
+
+}
+/**
+ * [step_x description]
+ * @param dir [description]
+ */
+void step_x(int dir){
+
+}
+
+/** [step_y description] */
+void step_y(int dir){
+
 }
