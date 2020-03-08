@@ -54,7 +54,8 @@ void print_board();
 void end_simulation();
 void new_round();
 void ipc_rmv();
-int get_indedx(pid_t player_pid);
+void handle_alarm(int signal);
+int get_index(pid_t player_pid);
 
 /*
 	environment variables
@@ -70,7 +71,7 @@ Player *player;
 char *args[] = {"./player", NULL};
 
 int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G,
-	SO_FLAG_MIN, SO_FLAG_MAX, SO_ROUND_SCORE;
+	SO_FLAG_MIN, SO_FLAG_MAX, SO_ROUND_SCORE, SO_MAX_TIME;
 
 int shm_id, sem_board_id, msg_id;
 
@@ -78,6 +79,10 @@ struct sembuf sem_board;
 struct msgbuf msg_queue;
 
 int main(int argc, char * argv[], char** env){
+
+	struct sigaction sa;
+	sigset_t my_mask;
+
 
 	FILE * shm_file;
 	FILE * sem_board_file;
@@ -96,6 +101,13 @@ int main(int argc, char * argv[], char** env){
 	SO_BASE = atoi(getenv("SO_BASE"));
 	SO_NUM_P = atoi(getenv("SO_NUM_P"));
 	SO_NUM_G = atoi(getenv("SO_NUM_G"));
+	SO_MAX_TIME = atoi(getenv("SO_MAX_TIME"));
+
+	sa.sa_handler = &handle_alarm;
+	sa.sa_flags = 0;
+	sigemptyset(&my_mask);
+	sa.sa_mask = my_mask;
+	sigaction(SIGALRM, &sa, NULL);
 
 	player = (Player *) malloc(sizeof(Player)*SO_NUM_G);
 
@@ -186,7 +198,6 @@ int main(int argc, char * argv[], char** env){
 	print_board();
     printf("\n");
     new_round();
-    end_simulation();
 
     return 0;
 }
@@ -219,6 +230,8 @@ void new_round(){
 	print_board();
   	printf("\n");
 
+	alarm(SO_MAX_TIME);
+
 	/*
 		Sends all players START_ROUND msg and #flags
 	 */
@@ -250,8 +263,12 @@ void new_round(){
 	   msgsnd(msg_id, &msg_queue, LENGTH, 0);
    	}
 
+	printf("finirà??\n");
+
 	sleep(15);
 
+	printf("SIIII\n");
+	
 	/*
 		sends all players END_ROUND msg
 	 */
@@ -291,7 +308,7 @@ void print_board(){
         	if(board[a*SO_BASE + b].type == 'e'){
         		printf("#");
         	} else if(board[a*SO_BASE + b].type == 'p'){
-				switch(get_indedx(board[a*SO_BASE + b].owner)){
+				switch(get_index(board[a*SO_BASE + b].owner)){
 					case 0:
 						printf("\033[1;31m");
 						printf("X");
@@ -324,6 +341,14 @@ void print_board(){
         }
         printf("\n");
     }
+}
+
+/**
+ * [handle_alarm description]
+ * @param signal [description]
+ */
+void handle_alarm(int signal){
+	end_simulation();
 }
 
 /**
@@ -362,7 +387,7 @@ void end_simulation(){
  * @param  player_pid: player to find index
  * @return            index if playes in players[], -1 otherwise
  */
-int get_indedx(pid_t player_pid){
+int get_index(pid_t player_pid){
 	int i;
 
 	for(i = 0; i < SO_NUM_G; i++){

@@ -222,28 +222,80 @@ struct Pair delta_flag(int flag_x, int flag_y){
 
 /**
  * [path_to_flag description]
- * @param start_x [description]
- * @param start_y [description]
- * @param delta_x [description]
- * @param delta_y [description]
- * @param dir_y   [description]
- * @param dir_x   [description]
+ * @param start_x coordinate x from which to start
+ * @param start_y coordinate y from which to start
+ * @param delta_x y component of movement
+ * @param delta_y y component of movement
+ * @param dir_x   direction on x
+ * @param dir_y   direction on y
  */
 void path_to_flag(int start_x, int start_y,
 	int delta_x, int delta_y,
-	int dir_y, int dir_x
-){
+	int dir_x, int dir_y){
 
 }
+
 /**
- * [step_x description]
- * @param dir [description]
+ * moves on step on x if possible
+ * @param dir direction
  */
 void step_x(int dir){
+	int ret_val, index;
 
+	index = self_y * SO_BASE + self_x + dir;
+	sem_board.sem_op = -1;
+	sem_board.sem_num= index;
+	sem_board.sem_flg = IPC_NOWAIT;
+	ret_val = semop(sem_board_id, &sem_board, 1);
+	if(ret_val == -1){
+		if (errno == EAGAIN) printf("OCCUPATA\n");
+		else TEST_ERROR;
+	}else{
+		board[index].type = 'p';
+		board[index].owner = getppid();
+		board[index].value = getpid();
+		board[self_ind].type = 'e';
+		board[self_ind].value = 0;
+		board[self_ind].owner = 0;
+		printf("prima ero in (%d,%d) ora in (%d,%d)\n",
+			board[self_ind].x, board[self_ind].y,
+			board[index].x, board[index].y );
+		sem_board.sem_op = 1;
+		sem_board.sem_num= self_ind;
+		semop(sem_board_id, &sem_board, 1);
+		self_ind = index;
+		self_x += dir;
+		SO_N_MOVES -= 1;
+	}
 }
 
-/** [step_y description] */
+/**
+ * moves on step on y if possible
+ * @param dir direction
+ */
 void step_y(int dir){
+	int ret_val, index;
 
+	index = (self_y + dir) * SO_BASE + self_x;
+	sem_board.sem_op = -1;
+	sem_board.sem_num= index;
+	sem_board.sem_flg = IPC_NOWAIT;
+	ret_val = semop(sem_board_id, &sem_board, 1);
+	if(ret_val == -1){
+		if (errno == EAGAIN) printf("OCCUPATA\n");
+		else TEST_ERROR;
+	}else{
+		board[index].type = 'p';
+		board[index].owner = getppid();
+		board[index].value = getpid();
+		board[self_ind].type = 'e';
+		board[self_ind].value = 0;
+		board[self_ind].owner = 0;
+		sem_board.sem_op = 1;
+		sem_board.sem_num= self_ind;
+		semop(sem_board_id, &sem_board, 1);
+		self_ind = index;
+		self_y += dir;
+		SO_N_MOVES -= 1;
+	}
 }
