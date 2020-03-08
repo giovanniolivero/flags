@@ -8,6 +8,7 @@ export SO_NUM_G=2
 export SO_FLAG_MIN=5
 export SO_FLAG_MAX=5
 export SO_ROUND_SCORE=10
+export SO_N_MOVES=10
 
 
 source ~/.bash_profile
