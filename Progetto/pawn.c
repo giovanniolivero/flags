@@ -26,9 +26,15 @@
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 120
 
+/*
+	enumerations
+ */
 enum cmd{MOVE_TO = 2, START_MOVING = 3};
 enum dir{LEFT = -1, DOWN = -1, RIGHT = -1, UP = 1, NONE = 0};
 
+/*
+	structs
+ */
 struct piece {
 	char type;
 	int value;
@@ -40,6 +46,9 @@ struct Pair{
 	int x, y;
 };
 
+/*
+	function prototypes
+ */
 void handle_term(int signal);
 void move_to(struct Pair move);
 void step_x(int dir);
@@ -51,6 +60,9 @@ void path_to_flag(
 );
 struct Pair delta_flag(int flag_x, int flag_y);
 
+/*
+	global variables
+ */
 struct piece *board;
 struct sembuf sem_board;
 
@@ -107,7 +119,10 @@ int main(int argc, char * argv[], char** envp){
 	if (msg_id == -1) TEST_ERROR;
 
 	rcv = (long) getpid();
-	printf("HEIIII\n");
+
+	/*
+		gets self position from msg
+	 */
 	if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 		split_msg = strtok (msg_queue.mtext," ");
 		self_x = atoi(split_msg);
@@ -116,21 +131,28 @@ int main(int argc, char * argv[], char** envp){
 		self_ind = self_y * SO_BASE + self_x;
 		board[self_ind].value = getpid();
 	}
+
+	/*
+		waits for any message from the player
+	 */
 	for(;;){
 		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 			switch (atoi(msg_queue.mtext)) {
+				/*
+					gets coordinates (x,y) of the target flag
+				 */
 				case MOVE_TO:
 					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 					split_msg = strtok (msg_queue.mtext," ");
 					move.x = atoi(split_msg);
 					split_msg = strtok (NULL, " ");
 					move.y =  atoi(split_msg);
-					self_ind = self_y * SO_BASE + self_x;
-					board[self_ind].value = getpid();
-					move_to(move);
 					break;
+				/*
+					star moving to the target flag
+				 */
 				case START_MOVING:
-					printf("GOTTA GO\n");
+					move_to(move);
 					break;
 				default:
 					break;
@@ -160,30 +182,26 @@ void move_to(struct Pair move){
 	delta = delta_flag(move.x, move.y);
 	dist = abs(delta.x) + abs(delta.y);
 	if(dist <= SO_N_MOVES){
-			if(delta.x == 0 && delta.y > 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, NONE, UP);
-			}
-			else if(delta.x > 0 && delta.y == 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, NONE);
-			}
-			else if(delta.x == 0 && delta.y < 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, NONE, DOWN);
-			}
-			else if(delta.x < 0 && delta.y == 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, NONE);
-			}
-			else if(delta.x > 0 && delta.y > 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, UP);
-			}
-			else if(delta.x > 0 && delta.y < 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, DOWN);
-			}
-			else if(delta.x < 0 && delta.y > 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, UP);
-			}
-			else if(delta.x < 0 && delta.y < 0){
-				path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, DOWN);
-			}
+		printf("MOVING.... dist = %d SO_N_MOVES = %d\n", dist, SO_N_MOVES);
+		if(delta.x == 0 && delta.y > 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, NONE, UP);
+		}else if(delta.x > 0 && delta.y == 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, NONE);
+		}else if(delta.x == 0 && delta.y < 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, NONE, DOWN);
+		}else if(delta.x < 0 && delta.y == 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, NONE);
+		}else if(delta.x > 0 && delta.y > 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, UP);
+		}else if(delta.x > 0 && delta.y < 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, RIGHT, DOWN);
+		}else if(delta.x < 0 && delta.y > 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, UP);
+		}else if(delta.x < 0 && delta.y < 0){
+			path_to_flag(self_x, self_y, delta.x, delta.y, LEFT, DOWN);
+		}
+	}else{
+		printf("NOT MOVING.... dist = %d SO_N_MOVES = %d\n", dist, SO_N_MOVES);
 	}
 }
 

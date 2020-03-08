@@ -27,8 +27,14 @@
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 120
 
+/*
+	enumerations
+ */
 enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3};
 
+/*
+	structs
+ */
 struct piece {
 	char type;
 	int value;
@@ -45,22 +51,26 @@ struct self_pawns{
 	int x, y;
 };
 
-struct Pair place_random();
-
+/*
+	function prototypes
+ */
 void handle_term(int signal);
 void find_flags(struct Pair *flags);
-struct Pair min_dist_flag(struct self_pawns pawn);
 int dist_flag(struct Pair flags, struct self_pawns pawn);
+struct Pair place_random();
+struct Pair min_dist_flag(struct self_pawns pawn);
 
+/*
+	global variables
+ */
 struct piece *board;
 struct sembuf sem_board;
 struct self_pawns *self_pawns;
 struct Pair *flags;
 
-int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G;
-
 char *args[] = {"./pawn", NULL};
 
+int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G;
 int sem_board_id, shm_id, msg_id;
 int  num_flags;
 
@@ -76,7 +86,6 @@ int main(int argc, char * argv[], char** envp){
 	struct Pair pair;
 	struct sigaction sa;
 	sigset_t my_mask;
-
 
 	key_t msg_key;
 
@@ -124,6 +133,10 @@ int main(int argc, char * argv[], char** envp){
 
 	rcv = (long) getpid();
 
+	/*
+		generates all pawns, saves pawns pid and position,
+		sends it to pawn, sends a msg to master
+	 */
 	for(i = 0; i< SO_NUM_P; i++){
 		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 		sem_board.sem_op = -1;
@@ -151,9 +164,18 @@ int main(int argc, char * argv[], char** envp){
 	}
 
 	rcv = (long) getpid();
+
+	/*
+		waits for any message from the master
+	 */
 	for(;;){
 		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 			switch (atoi(msg_queue.mtext)) {
+				/*
+					gets a msg with num_flags, finds all flag on the board,
+					for all pawns sends MOVE_TO msg and coordinate (x,y)
+					of the flag to be caught
+				 */
 				case START_ROUND:
 					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 					num_flags = atoi(msg_queue.mtext);
@@ -168,19 +190,23 @@ int main(int argc, char * argv[], char** envp){
 						sprintf(msg_queue.mtext, "%d %d", move.x, move.y);
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
-					printf("CAN MOVE?\n");
 					msg_queue.mtype = (long) getppid();
 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
+				/*
+
+				 */
 				case END_ROUND:
 					break;
+				/*
+					for all pawns sends START_MOVING msg
+				 */
 				case START_MOVING:
 					for(i = 0; i < SO_NUM_P; i++){
 						msg_queue.mtype = (long)(self_pawns[i].pid);
 						sprintf(msg_queue.mtext, "%d", START_MOVING);
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
-					printf("SAID MOVE\n");
 					break;
 				default:
 					break;
@@ -191,8 +217,8 @@ int main(int argc, char * argv[], char** envp){
 }
 
 /**
- * [place_random description]
- * @return [description]
+ * places a pawn in a random free spot on the board
+ * @return coordinate (x,y) of the placed pawn
  */
 struct Pair place_random(){
 	int ret_val;
@@ -223,8 +249,8 @@ struct Pair place_random(){
 }
 
 /**
- * [handle_term description]
- * @param signal [description]
+ * handles SIGTERM signal, terminates all pawns and frees all structs
+ * @param signal SIGTERM
  */
 void handle_term(int signal){
 	int i, status;
@@ -247,11 +273,12 @@ void handle_term(int signal){
 }
 
 /**
- * [find_flags description]
- * @param flags [description]
+ * saves the position of all flags
+ * @param flags struct in which to save position
  */
 void find_flags(struct Pair *flags){
 	int i,j;
+
 	for(i = 0, j = 0; i < SO_BASE * SO_ALTEZZA; i++){
 		if(board[i].type == 'f'){
 			flags[j].x = board[i].x;
@@ -262,13 +289,14 @@ void find_flags(struct Pair *flags){
 }
 
 /**
- * [min_dist_flag description]
- * @param  pawn [description]
- * @return      [description]
+ * gets the flag with minimum distance
+ * @param  pawn pawn from which to calculate the distance
+ * @return      coordinates (x,y) of the flag
  */
 struct Pair min_dist_flag(struct self_pawns pawn){
 	int i, index, dist, min = INT_MAX;
 	struct Pair p;
+
 	for(i = 0; i < num_flags; i++){
 		dist = dist_flag(flags[i], pawn);
 		if(dist < min) {
@@ -282,10 +310,10 @@ struct Pair min_dist_flag(struct self_pawns pawn){
 }
 
 /**
- * [dist_flag description]
- * @param  flag [description]
- * @param  pawn [description]
- * @return      [description]
+ * gets the distance between a flag and a pawn
+ * @param  flag flag
+ * @param  pawn pawn
+ * @return      distance in between
  */
 int dist_flag(struct Pair flag, struct self_pawns pawn){
 	int dist_x, dist_y;

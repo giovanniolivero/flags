@@ -26,8 +26,14 @@
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 120
 
+/*
+	enumerations
+ */
 enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3};
 
+/*
+	structs
+ */
 struct piece {
 	char type;
 	int value;
@@ -40,6 +46,9 @@ typedef struct Player {
 	int score;
 }Player;
 
+/*
+	function prototypes
+ */
 void fill_empty();
 void print_board();
 void end_simulation();
@@ -47,8 +56,14 @@ void new_round();
 void ipc_rmv();
 int get_indedx(pid_t player_pid);
 
+/*
+	environment variables
+ */
 extern char **environ;
 
+/*
+	global variables
+ */
 struct piece *board;
 Player *player;
 
@@ -136,6 +151,9 @@ int main(int argc, char * argv[], char** env){
 
 	printf("hey sono il master %d.\n", getpid());
 
+	/*
+		generates players, saves players pid, init score
+	 */
 	for(i=0; i<SO_NUM_G; i++){
 		switch(child_pid = fork()){
 			case -1:
@@ -152,6 +170,9 @@ int main(int argc, char * argv[], char** env){
 		player[i].score = 0;
 	}
 
+	/*
+		lets players place their pawns of one by one
+	 */
 	rcv = (long) getpid();
 	for(i = 0; i < SO_NUM_P*SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i%SO_NUM_G].pid);
@@ -171,9 +192,11 @@ int main(int argc, char * argv[], char** env){
 }
 
 /**
- * [new_round description]
+ * Init a new round, generate #flags, place flags on the board
+ * and communuìicate with players
  */
 void new_round(){
+	static int count = 1;
 	int i, r, points, num_flags;
 	long rcv;
 
@@ -181,6 +204,9 @@ void new_round(){
 	num_flags = SO_FLAG_MIN + rand() % ((SO_FLAG_MAX+1) - SO_FLAG_MIN);
 	points = SO_ROUND_SCORE;
 
+	/*
+		places flags with random points
+	 */
 	for(i = num_flags; i > 0; i--){
 		do{
 			r = rand() % (SO_BASE * SO_ALTEZZA);
@@ -193,8 +219,10 @@ void new_round(){
 	print_board();
   	printf("\n");
 
-	/*START_ROUND*/
-	printf("STARTING...\n");
+	/*
+		Sends all players START_ROUND msg and #flags
+	 */
+	printf("Round #%d started\n", count);
 	for(i = 0; i < SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i].pid);
 		sprintf(msg_queue.mtext, "%d", START_ROUND);
@@ -205,21 +233,28 @@ void new_round(){
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
 
-	printf("WAITIN...\n");
+	/*
+		waits for all players to give directions to their pawns
+	 */
 	rcv = (long) getpid();
 	for(i = 0; i < SO_NUM_G; i++){
 		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
    	}
 
-	printf("SAYING...\n");
+	/*
+		sends all players START_MOVING msg
+	 */
    	for(i = 0; i < SO_NUM_G; i++){
 	   msg_queue.mtype = (long)(player[i].pid);
 	   sprintf(msg_queue.mtext, "%d", START_MOVING);
 	   msgsnd(msg_id, &msg_queue, LENGTH, 0);
    	}
-	
-	sleep(5);
-	/*END_ROUND*/
+
+	sleep(15);
+
+	/*
+		sends all players END_ROUND msg
+	 */
 	for(i = 0; i < SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i].pid);
 		sprintf(msg_queue.mtext, "%d", END_ROUND);
@@ -228,7 +263,7 @@ void new_round(){
 }
 
 /**
- * [fill_empty description]
+ * sets all pieces of the board to empty
  */
 void fill_empty(){
 	int i,j;
@@ -246,7 +281,7 @@ void fill_empty(){
 }
 
 /**
- * [print_board description]
+ * prints the board with different colors for pawns and flags
  */
 void print_board(){
 	int a,b;
@@ -292,7 +327,7 @@ void print_board(){
 }
 
 /**
- * [end_simulation description]
+ * Ends the game, terminates players and show final score
  */
 void end_simulation(){
 	int i, status;
@@ -306,6 +341,9 @@ void end_simulation(){
 
 	printf("terminating...\n");
 
+	/*
+		waits for all players to terminate their pawns
+	 */
 	while ((child_pid = wait(&status)) != -1) {
 		printf("terminated player process...\n");
 	}
@@ -320,9 +358,9 @@ void end_simulation(){
 }
 
 /**
- * [get_indedx description]
- * @param  player_pid [description]
- * @return            [description]
+ * gets the index of a player
+ * @param  player_pid: player to find index
+ * @return            index if playes in players[], -1 otherwise
  */
 int get_indedx(pid_t player_pid){
 	int i;
@@ -334,7 +372,7 @@ int get_indedx(pid_t player_pid){
 }
 
 /**
- * [ipc_rmv description]
+ * removes all ipcs, shared memory and free players
  */
 void ipc_rmv(){
 	shmctl(shm_id, IPC_RMID, NULL);
