@@ -373,6 +373,8 @@ void end_simulation(){
 	pid_t child_pid;
 
 	printf("[MASTER] The game is ended\n");
+	printf("------------------------------------------\n");
+	print_board();
 	for(i=0; i<SO_NUM_G; i++){
 		printf("player -> %d score -> %d\n", player[i].pid, player[i].score);
 		kill(player[i].pid, SIGTERM);

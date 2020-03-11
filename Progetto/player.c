@@ -235,7 +235,7 @@ struct Pair place_random(){
 	int x, y;
 	struct Pair pair;
 
-	srand(time(0));
+	srand(time(NULL));
 	while(1){
 		x = rand() % SO_BASE;
 		y = rand() % SO_ALTEZZA;
