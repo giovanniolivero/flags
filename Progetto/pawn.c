@@ -29,7 +29,7 @@
 /*
 	enumerations
  */
-enum cmd{MOVE_TO = 2, START_MOVING = 3};
+enum cmd{MOVE_TO = 2, START_MOVING = 3, CAUGTH = 4};
 enum dir{LEFT = -1, DOWN = -1, RIGHT = -1, UP = 1, NONE = 0};
 
 /*

@@ -30,7 +30,7 @@
 /*
 	enumerations
  */
-enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3};
+enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3, CAUGTH = 4};
 
 /*
 	structs
@@ -129,7 +129,8 @@ int main(int argc, char * argv[], char** envp){
 	msg_id = msgget(msg_key, 0600);
 	if (msg_id == -1) TEST_ERROR;
 
-	printf("hey sono il player %d.\n", getpid());
+	printf("[PLAYER] Hi i'm PLayer PID: %d.\n", getpid());
+	printf("------------------------------------------\n");
 
 	rcv = (long) getpid();
 
@@ -197,6 +198,7 @@ int main(int argc, char * argv[], char** envp){
 
 				 */
 				case END_ROUND:
+					free(flags);
 					break;
 				/*
 					for all pawns sends START_MOVING msg
@@ -208,6 +210,13 @@ int main(int argc, char * argv[], char** envp){
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
 					break;
+				/*
+					tells the master that a flag has been caught
+				 */
+				case CAUGTH:
+					msg_queue.mtype = (long) getppid();
+					sprintf(msg_queue.mtext, "%d", CAUGTH);
+					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 				default:
 					break;
 			}

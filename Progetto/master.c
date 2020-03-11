@@ -29,7 +29,7 @@
 /*
 	enumerations
  */
-enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3};
+enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGTH = 4};
 
 /*
 	structs
@@ -161,8 +161,8 @@ int main(int argc, char * argv[], char** env){
 	fill_empty();
     print_board();
 
-	printf("hey sono il master %d.\n", getpid());
-
+	printf("[MASTER] Hi i'm Master PID: %d.\n", getpid());
+	printf("------------------------------------------\n");
 	/*
 		generates players, saves players pid, init score
 	 */
@@ -235,7 +235,8 @@ void new_round(){
 	/*
 		Sends all players START_ROUND msg and #flags
 	 */
-	printf("Round #%d started\n", count);
+	printf("[MASTER] Round #%d started\n", count);
+	printf("------------------------------------------\n");
 	for(i = 0; i < SO_NUM_G; i++){
 		msg_queue.mtype = (long)(player[i].pid);
 		sprintf(msg_queue.mtext, "%d", START_ROUND);
@@ -263,12 +264,17 @@ void new_round(){
 	   msgsnd(msg_id, &msg_queue, LENGTH, 0);
    	}
 
-	printf("finirà??\n");
+	/*
+		waits for all flags to be caught
+	 */
+	while(1){
+		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
+		if(atoi(msg_queue.mtext) == CAUGTH){
+			num_flags--;
+		}
+		if (num_flags <= 0) break;
+	}
 
-	sleep(15);
-
-	printf("SIIII\n");
-	
 	/*
 		sends all players END_ROUND msg
 	 */
@@ -277,6 +283,13 @@ void new_round(){
 		sprintf(msg_queue.mtext, "%d", END_ROUND);
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
+
+	sleep(15);
+	printf("[MASTER] Round #%d ended\n", count);
+	printf("------------------------------------------\n");
+
+	count++;
+	new_round();
 }
 
 /**
@@ -339,8 +352,9 @@ void print_board(){
 				printf("\033[0m");
 			}
         }
-        printf("\n");
+		printf("\n");
     }
+	printf("------------------------------------------\n");
 }
 
 /**
@@ -358,13 +372,11 @@ void end_simulation(){
 	int i, status;
 	pid_t child_pid;
 
-	printf("END_GAME\n");
+	printf("[MASTER] The game is ended\n");
 	for(i=0; i<SO_NUM_G; i++){
 		printf("player -> %d score -> %d\n", player[i].pid, player[i].score);
 		kill(player[i].pid, SIGTERM);
 	}
-
-	printf("terminating...\n");
 
 	/*
 		waits for all players to terminate their pawns
@@ -379,6 +391,7 @@ void end_simulation(){
 	}
 	ipc_rmv();
 	printf("BYE.\n");
+	printf("------------------------------------------\n");
 	exit(EXIT_SUCCESS);
 }
 
