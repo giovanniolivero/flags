@@ -29,7 +29,7 @@
 /*
 	enumerations
  */
-enum cmd{MOVE_TO = 2, START_MOVING = 3, CAUGTH = 4};
+enum cmd{MOVE_TO = 2, START_MOVING = 3, CAUGTH = 4, POSITION = 6};
 enum dir{LEFT = -1, DOWN = -1, RIGHT = -1, UP = 1, NONE = 0};
 
 /*
@@ -50,7 +50,7 @@ struct Pair{
 	function prototypes
  */
 void handle_term(int signal);
-void move_to(struct Pair move);
+int move_to(struct Pair target);
 int step_x(int dir);
 int step_y(int dir);
 int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y);
@@ -69,8 +69,9 @@ int self_x, self_y, self_ind;
 int main(int argc, char * argv[], char** envp){
 
 	long rcv;
-	int go_to;
-	struct Pair move;
+	int points;
+	char * split_msg;
+	struct Pair target;
 
 	struct msgbuf msg_queue;
 	struct sigaction sa;
@@ -81,8 +82,6 @@ int main(int argc, char * argv[], char** envp){
 	FILE *shm_file;
 	FILE *sem_board_file;
 	FILE *msgid_file;
-
-	char * split_msg;
 
 	sa.sa_handler = &handle_term;
 	sa.sa_flags = 0;
@@ -133,79 +132,92 @@ int main(int argc, char * argv[], char** envp){
 	 */
 	for(;;){
 		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
-			switch (atoi(msg_queue.mtext)) {
+			split_msg = strtok (msg_queue.mtext," ");
+			switch (atoi(split_msg)) {
 				/*
 					gets coordinates (x,y) of the target flag
 				 */
 				case MOVE_TO:
 					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 					split_msg = strtok (msg_queue.mtext," ");
-					move.x = atoi(split_msg);
+					target.x = atoi(split_msg);
 					split_msg = strtok (NULL, " ");
-					move.y =  atoi(split_msg);
+					target.y =  atoi(split_msg);
 					break;
 				/*
-					star moving to the target flag
+					starts moving to the target flag
 				 */
 				case START_MOVING:
-					move_to(move);
+					points = move_to(target);
+					if(points > 0){
+						msg_queue.mtype = (long) getppid();
+						sprintf(msg_queue.mtext, "%d %d", CAUGTH, points);
+						msgsnd(msg_id, &msg_queue, LENGTH, 0);
+					}
+					break;
+				case POSITION:
+					msg_queue.mtype = (long) getppid() + POSITION;
+					sprintf(msg_queue.mtext, "%d", self_ind);
+					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
 				default:
 					break;
 			}
 		}
 	}
-	exit(EXIT_SUCCESS);
+	exit(EXIT_FAILURE);
 }
 
 /**
- * [handle_term description]
- * @param signal [description]
+ * handles SIGTERM signal
+ * @param signal SIGTERM signal
  */
 void handle_term(int signal){
 	exit(EXIT_SUCCESS);
 }
 
 /**
- * [move_to description]
- * @param move [description]
+ * determinates if the pawn can move to the target flag if can moves it
+ * @param  target target flag
+ * @return      points of the target flag
  */
-void move_to(struct Pair move){
+int move_to(struct Pair target){
 	struct Pair delta;
-	int dist, caught;
+	int dist, points;
 
 	srand(time(NULL));
-	delta = delta_flag(move.x, move.y);
+	delta = delta_flag(target.x, target.y);
 	dist = abs(delta.x) + abs(delta.y);
 	/*
 		moves only if it can
 	 */
 	if(dist <= SO_N_MOVES){
 		if(delta.x == 0 && delta.y > 0){
-			caught = path_to_flag(delta.x, delta.y, NONE, UP);
+			points = path_to_flag(delta.x, delta.y, NONE, UP);
 		}else if(delta.x > 0 && delta.y == 0){
-			caught = path_to_flag(delta.x, delta.y, RIGHT, NONE);
+			points = path_to_flag(delta.x, delta.y, RIGHT, NONE);
 		}else if(delta.x == 0 && delta.y < 0){
-			caught = path_to_flag(delta.x, delta.y, NONE, DOWN);
+			points = path_to_flag(delta.x, delta.y, NONE, DOWN);
 		}else if(delta.x < 0 && delta.y == 0){
-			caught = path_to_flag(delta.x, delta.y, LEFT, NONE);
+			points = path_to_flag(delta.x, delta.y, LEFT, NONE);
 		}else if(delta.x > 0 && delta.y > 0){
-			caught = path_to_flag(delta.x, delta.y, RIGHT, UP);
+			points = path_to_flag(delta.x, delta.y, RIGHT, UP);
 		}else if(delta.x > 0 && delta.y < 0){
-			caught = path_to_flag(delta.x, delta.y, RIGHT, DOWN);
+			points = path_to_flag(delta.x, delta.y, RIGHT, DOWN);
 		}else if(delta.x < 0 && delta.y > 0){
-			caught = path_to_flag(delta.x, delta.y, LEFT, UP);
+			points = path_to_flag(delta.x, delta.y, LEFT, UP);
 		}else if(delta.x < 0 && delta.y < 0){
-			caught = path_to_flag(delta.x, delta.y, LEFT, DOWN);
+			points = path_to_flag(delta.x, delta.y, LEFT, DOWN);
 		}
 	}
+	return points;
 }
 
 /**
- * [delta_flag description]
- * @param  flag_x [description]
- * @param  flag_y [description]
- * @return        [description]
+ * calculate the distance on x and on y
+ * @param  flag_x flag's coordinate x
+ * @param  flag_y flag's coordinate y
+ * @return        a Pair (delta_x, delta_y)
  */
 struct Pair delta_flag(int flag_x, int flag_y){
 	int dist_x, dist_y;
@@ -217,16 +229,17 @@ struct Pair delta_flag(int flag_x, int flag_y){
 }
 
 /**
- * [path_to_flag description]
+ * moves the pawn to the targeg flag
  * @param delta_x y component of movement
  * @param delta_y y component of movement
  * @param dir_x   direction on x
  * @param dir_y   direction on y
  */
 int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
-	int target, random, ret = -1;
+	int target, points, random, ret = -1;
 
 	target = (self_y + delta_y) * SO_BASE + (self_x + delta_x);
+	points = board[target].value;
 	delta_x = abs(delta_x);
 	delta_y = abs(delta_y);
 	srand(time(NULL));
@@ -239,7 +252,6 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
 			/*
 				randomly moves on x or y
 			 */
-
 			random = rand() % 2;
 			switch(random){
 				case 0:
@@ -269,11 +281,16 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
 
 		}
 	}
-	return 0;
+
+	if(target == self_ind){
+		return points;
+	}
+
+	return -1;
 }
 
 /**
- * moves on step on x if possible
+ * moves one step on x if possible
  * @param dir direction
  */
 int step_x(int dir){
@@ -294,9 +311,6 @@ int step_x(int dir){
 		board[self_ind].type = 'e';
 		board[self_ind].value = 0;
 		board[self_ind].owner = 0;
-		printf("prima ero in (%d,%d) ora in (%d,%d)\n",
-			board[self_ind].x, board[self_ind].y,
-			board[index].x, board[index].y );
 		sem_board.sem_op = 1;
 		sem_board.sem_num= self_ind;
 		semop(sem_board_id, &sem_board, 1);
@@ -308,7 +322,7 @@ int step_x(int dir){
 }
 
 /**
- * moves on step on y if possible
+ * moves one step on y if possible
  * @param dir direction
  */
 int step_y(int dir){
@@ -329,9 +343,6 @@ int step_y(int dir){
 		board[self_ind].type = 'e';
 		board[self_ind].value = 0;
 		board[self_ind].owner = 0;
-		printf("prima ero in (%d,%d) ora in (%d,%d)\n",
-			board[self_ind].x, board[self_ind].y,
-			board[index].x, board[index].y );
 		sem_board.sem_op = 1;
 		sem_board.sem_num= self_ind;
 		semop(sem_board_id, &sem_board, 1);

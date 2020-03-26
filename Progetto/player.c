@@ -30,7 +30,8 @@
 /*
 	enumerations
  */
-enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3, CAUGTH = 4};
+enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3,
+	 		CAUGTH = 4, FLAGS = 5, POSITION = 6};
 
 /*
 	structs
@@ -46,7 +47,7 @@ struct Pair {
 	int x, y;
 };
 
-struct self_pawns{
+struct pawn{
 	pid_t pid;
 	int x, y;
 };
@@ -56,29 +57,31 @@ struct self_pawns{
  */
 void handle_term(int signal);
 void find_flags(struct Pair *flags);
-int dist_flag(struct Pair flags, struct self_pawns pawn);
+int dist_flag(struct Pair flags, struct pawn pawn);
 struct Pair place_random();
-struct Pair min_dist_flag(struct self_pawns pawn);
+struct Pair min_dist_flag(struct pawn pawn);
 
 /*
 	global variables
  */
 struct piece *board;
 struct sembuf sem_board;
-struct self_pawns *self_pawns;
+struct pawn *self_pawns;
 struct Pair *flags;
+struct Pair *targets;
 
 char *args[] = {"./pawn", NULL};
 
 int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G;
 int sem_board_id, shm_id, msg_id;
-int  num_flags;
+int num_flags;
 
 int main(int argc, char * argv[], char** envp){
 
-	int i;
-	long rcv, r;
-	struct Pair move;
+	int i, points, cmd, pawn_ind;
+	long rcv, rcv_2, r;
+	char * split_msg;
+	struct Pair target;
 
 	pid_t child_pid;
 
@@ -104,8 +107,8 @@ int main(int argc, char * argv[], char** envp){
 	SO_NUM_P = atoi(getenv("SO_NUM_P"));
 	SO_NUM_G = atoi(getenv("SO_NUM_G"));
 
-	self_pawns = (struct self_pawns*)malloc(sizeof(struct self_pawns)*SO_NUM_P);
-
+	self_pawns = (struct pawn*)malloc(sizeof(struct pawn)*SO_NUM_P);
+	targets = (struct Pair*)malloc(sizeof(struct Pair)*SO_NUM_P);
 	shm_file = fopen(FILENAME_SHM, "r");
 
 	fscanf(shm_file, "%d", &shm_id);
@@ -129,7 +132,7 @@ int main(int argc, char * argv[], char** envp){
 	msg_id = msgget(msg_key, 0600);
 	if (msg_id == -1) TEST_ERROR;
 
-	printf("[PLAYER] Hi i'm PLayer PID: %d.\n", getpid());
+	printf("[PLAYER %d] Joined the game.\n", getpid());
 	printf("------------------------------------------\n");
 
 	rcv = (long) getpid();
@@ -164,31 +167,36 @@ int main(int argc, char * argv[], char** envp){
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
 
-	rcv = (long) getpid();
-
 	/*
 		waits for any message from the master
 	 */
 	for(;;){
 		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
-			switch (atoi(msg_queue.mtext)) {
+			split_msg = strtok (msg_queue.mtext," ");
+			cmd = atoi(split_msg);
+			switch (cmd) {
 				/*
 					gets a msg with num_flags, finds all flag on the board,
 					for all pawns sends MOVE_TO msg and coordinate (x,y)
 					of the flag to be caught
 				 */
 				case START_ROUND:
+					printf("!!!\n");
+					printf("[DBG] New Round.\n");
+					printf("!!!\n");
 					msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 					num_flags = atoi(msg_queue.mtext);
 					flags = (struct Pair*)malloc(sizeof(struct Pair)*num_flags);
 					find_flags(flags);
 					for(i = 0; i < SO_NUM_P; i++){
-						move = min_dist_flag(self_pawns[i]);
+						target = min_dist_flag(self_pawns[i]);
+						targets[i].x = target.x;
+						targets[i].y = target.y;
 						msg_queue.mtype = (long)(self_pawns[i].pid);
 						sprintf(msg_queue.mtext, "%d", MOVE_TO);
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 						msg_queue.mtype = (long)(self_pawns[i].pid);
-						sprintf(msg_queue.mtext, "%d %d", move.x, move.y);
+						sprintf(msg_queue.mtext, "%d %d", target.x, target.y);
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
 					msg_queue.mtype = (long) getppid();
@@ -198,7 +206,9 @@ int main(int argc, char * argv[], char** envp){
 
 				 */
 				case END_ROUND:
+					printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!![DBG] ended\n");
 					free(flags);
+					free(targets);
 					break;
 				/*
 					for all pawns sends START_MOVING msg
@@ -214,15 +224,55 @@ int main(int argc, char * argv[], char** envp){
 					tells the master that a flag has been caught
 				 */
 				case CAUGTH:
+					split_msg = strtok (NULL, " ");
+					points =  atoi(split_msg);
 					msg_queue.mtype = (long) getppid();
-					sprintf(msg_queue.mtext, "%d", CAUGTH);
+					sprintf(msg_queue.mtext, "%d %d %d", CAUGTH, getpid(), points);
 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
+					break;
+				/*
+					gets the new flag's number, for all pawns sends MOVE_TO msg
+					and coordinate (x,y) of the new target flag to be caught
+				 */
+				case FLAGS:
+					split_msg = strtok(NULL, " ");
+					num_flags =  atoi(split_msg);
+					free(flags);
+					flags = (struct Pair*)malloc(sizeof(struct Pair)*num_flags);
+					find_flags(flags);
+
+					for(i = 0; i < SO_NUM_P; i++){
+						msg_queue.mtype = (long)(self_pawns[i].pid);
+						sprintf(msg_queue.mtext, "%d", POSITION);
+						msgsnd(msg_id, &msg_queue, LENGTH, 0);
+
+						rcv_2 = (long) getpid() + POSITION;
+						msgrcv(msg_id, &msg_queue, LENGTH, rcv_2, 0);
+						pawn_ind = atoi(msg_queue.mtext);
+
+						self_pawns[i].x = board[pawn_ind].x;
+						self_pawns[i].y = board[pawn_ind].y;
+
+						target = min_dist_flag(self_pawns[i]);
+						if(targets[i].x != target.x || targets[i].y != target.y){
+							msg_queue.mtype = (long)(self_pawns[i].pid);
+							sprintf(msg_queue.mtext, "%d", MOVE_TO);
+							msgsnd(msg_id, &msg_queue, LENGTH, 0);
+							msg_queue.mtype = (long)(self_pawns[i].pid);
+							sprintf(msg_queue.mtext, "%d %d", target.x, target.y);
+							msgsnd(msg_id, &msg_queue, LENGTH, 0);
+							msg_queue.mtype = (long)(self_pawns[i].pid);
+							sprintf(msg_queue.mtext, "%d", START_MOVING);
+							msgsnd(msg_id, &msg_queue, LENGTH, 0);
+						}
+					}
+					break;
 				default:
 					break;
 			}
 		}
 	}
-	exit(EXIT_SUCCESS);
+	exit(EXIT_FAILURE);
 }
 
 /**
@@ -269,11 +319,12 @@ void handle_term(int signal){
 		kill(self_pawns[i].pid, SIGTERM);
 	}
 	while ((child_pid = wait(&status)) != -1) {
-		printf("terminated pawns process...\n");
+		printf("[PLAYER %d] Terminated pawns process...\n", getpid());
 	}
 	if (errno == ECHILD) {
 		free(self_pawns);
 		free(flags);
+		free(targets);
 		exit(EXIT_SUCCESS);
 	} else {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
@@ -302,7 +353,7 @@ void find_flags(struct Pair *flags){
  * @param  pawn pawn from which to calculate the distance
  * @return      coordinates (x,y) of the flag
  */
-struct Pair min_dist_flag(struct self_pawns pawn){
+struct Pair min_dist_flag(struct pawn pawn){
 	int i, index, dist, min = INT_MAX;
 	struct Pair p;
 
@@ -324,7 +375,7 @@ struct Pair min_dist_flag(struct self_pawns pawn){
  * @param  pawn pawn
  * @return      distance in between
  */
-int dist_flag(struct Pair flag, struct self_pawns pawn){
+int dist_flag(struct Pair flag, struct pawn pawn){
 	int dist_x, dist_y;
 
 	dist_x = flag.x - pawn.x;

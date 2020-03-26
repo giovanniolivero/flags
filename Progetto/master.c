@@ -29,7 +29,7 @@
 /*
 	enumerations
  */
-enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGTH = 4};
+enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGTH = 4, FLAGS = 5};
 
 /*
 	structs
@@ -104,12 +104,12 @@ int main(int argc, char * argv[], char** env){
 	SO_MAX_TIME = atoi(getenv("SO_MAX_TIME"));
 
 	sa.sa_handler = &handle_alarm;
-	sa.sa_flags = 0;
+	sa.sa_flags = SA_RESTART;
 	sigemptyset(&my_mask);
 	sa.sa_mask = my_mask;
 	sigaction(SIGALRM, &sa, NULL);
 
-	player = (Player *) malloc(sizeof(Player)*SO_NUM_G);
+	player = (Player*)malloc(sizeof(Player)*SO_NUM_G);
 
 	sem_board_id = semget(IPC_PRIVATE, 1 + SO_BASE*SO_ALTEZZA, 0600);
 	semctl(sem_board_id, SO_BASE*SO_ALTEZZA, SETVAL, 0);
@@ -197,8 +197,9 @@ int main(int argc, char * argv[], char** env){
 
 	print_board();
     printf("\n");
-    new_round();
-
+	for(;;){
+    	new_round();
+	}
     return 0;
 }
 
@@ -208,8 +209,9 @@ int main(int argc, char * argv[], char** env){
  */
 void new_round(){
 	static int count = 1;
-	int i, r, points, num_flags;
+	int i, r, points, num_flags, cmd, player_pid, player_index;
 	long rcv;
+	char *split_msg;
 
 	srand(time(NULL));
 	num_flags = SO_FLAG_MIN + rand() % ((SO_FLAG_MAX+1) - SO_FLAG_MIN);
@@ -269,8 +271,29 @@ void new_round(){
 	 */
 	while(1){
 		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
-		if(atoi(msg_queue.mtext) == CAUGTH){
+		split_msg = strtok (msg_queue.mtext," ");
+		cmd = atoi(split_msg);
+		if(cmd == CAUGTH){
 			num_flags--;
+			split_msg = strtok (NULL, " ");
+			player_pid =  atoi(split_msg);
+			split_msg = strtok (NULL, " ");
+			points =  atoi(split_msg);
+
+			/*
+			sends all player the number of the remaining flags
+			 */
+			for(i = 0; i < SO_NUM_G; i++){
+				msg_queue.mtype = (long)(player[i].pid);
+				sprintf(msg_queue.mtext, "%d %d", FLAGS, num_flags);
+				msgsnd(msg_id, &msg_queue, LENGTH, 0);
+			}
+
+			player_index = get_index(player_pid);
+			player[player_index].score += points;
+			printf("[MASTER] Player %d caught a %d flag.\n", player_pid, points);
+			printf("[MASTER] %d flags remaining.\n", num_flags);
+			printf("------------------------------------------\n");
 		}
 		if (num_flags <= 0) break;
 	}
@@ -284,12 +307,12 @@ void new_round(){
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
 
-	sleep(15);
-	printf("[MASTER] Round #%d ended\n", count);
+	printf("[MASTER] Round #%d ended.\n", count);
 	printf("------------------------------------------\n");
-
+	printf("[MASTER] Board after round #%d.\n", count);
+	printf("------------------------------------------\n");
+	print_board();
 	count++;
-	new_round();
 }
 
 /**
@@ -343,7 +366,7 @@ void print_board(){
 						printf("\033[0m");
 						break;
 					default:
-						printf("Error player not in game\n");
+						printf("[MASTER] Error player not in game\n");
 						break;
 				}
         	} else if(board[a*SO_BASE + b].type == 'f'){
@@ -358,17 +381,10 @@ void print_board(){
 }
 
 /**
- * [handle_alarm description]
- * @param signal [description]
+ * Handles SIGALRM signal: ends the game, terminates players and show final score
+ * @param signal SIGALRM signal
  */
 void handle_alarm(int signal){
-	end_simulation();
-}
-
-/**
- * Ends the game, terminates players and show final score
- */
-void end_simulation(){
 	int i, status;
 	pid_t child_pid;
 
@@ -376,7 +392,7 @@ void end_simulation(){
 	printf("------------------------------------------\n");
 	print_board();
 	for(i=0; i<SO_NUM_G; i++){
-		printf("player -> %d score -> %d\n", player[i].pid, player[i].score);
+		printf("[MASTER] Player -> %d Score -> %d\n", player[i].pid, player[i].score);
 		kill(player[i].pid, SIGTERM);
 	}
 
@@ -384,7 +400,7 @@ void end_simulation(){
 		waits for all players to terminate their pawns
 	 */
 	while ((child_pid = wait(&status)) != -1) {
-		printf("terminated player process...\n");
+		printf("[MASTER] Terminated player process...\n");
 	}
 	if (errno != ECHILD) {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
@@ -392,7 +408,7 @@ void end_simulation(){
 		exit(EXIT_FAILURE);
 	}
 	ipc_rmv();
-	printf("BYE.\n");
+	printf("[MASTER] Bye bye.\n");
 	printf("------------------------------------------\n");
 	exit(EXIT_SUCCESS);
 }
