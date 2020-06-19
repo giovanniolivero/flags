@@ -29,8 +29,8 @@
 /*
 	enumerations
  */
-enum cmd{MOVE_TO = 2, START_MOVING = 3, CAUGTH = 4, POSITION = 6};
-enum dir{LEFT = -1, DOWN = -1, RIGHT = -1, UP = 1, NONE = 0};
+enum cmd{MOVE_TO = 2, START_MOVING = 3, CAUGHT = 4, POSITION = 6};
+enum dir{LEFT = -1, DOWN = -1, RIGHT = 1, UP = 1, NONE = 0};
 
 /*
 	structs
@@ -61,8 +61,9 @@ struct Pair delta_flag(int flag_x, int flag_y);
  */
 struct piece *board;
 struct sembuf sem_board;
+struct Pair target;
 
-int SO_BASE, SO_N_MOVES;
+int SO_BASE, SO_N_MOVES, SO_MIN_HOLD_NSEC;
 int sem_board_id, shm_id, msg_id;
 int self_x, self_y, self_ind;
 
@@ -71,11 +72,8 @@ int main(int argc, char * argv[], char** envp){
 	long rcv;
 	int points;
 	char * split_msg;
-	struct Pair target;
 
 	struct msgbuf msg_queue;
-	struct sigaction sa;
-	sigset_t my_mask;
 
 	key_t msg_key;
 
@@ -83,14 +81,9 @@ int main(int argc, char * argv[], char** envp){
 	FILE *sem_board_file;
 	FILE *msgid_file;
 
-	sa.sa_handler = &handle_term;
-	sa.sa_flags = 0;
-	sigemptyset(&my_mask);
-	sa.sa_mask = my_mask;
-	sigaction(SIGTERM, &sa, NULL);
-
 	SO_BASE = atoi(getenv("SO_BASE"));
 	SO_N_MOVES = atoi(getenv("SO_N_MOVES"));
+	SO_MIN_HOLD_NSEC = atoi(getenv("SO_MIN_HOLD_NSEC"));
 
 	shm_file = fopen(FILENAME_SHM, "r");
 	fscanf(shm_file, "%d", &shm_id);
@@ -151,12 +144,15 @@ int main(int argc, char * argv[], char** envp){
 					points = move_to(target);
 					if(points > 0){
 						msg_queue.mtype = (long) getppid();
-						sprintf(msg_queue.mtext, "%d %d", CAUGTH, points);
+						sprintf(msg_queue.mtext, "%d %d", CAUGHT, points);
 						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
 					break;
+				/*
+					sends self coordinates (x,y)
+				 */
 				case POSITION:
-					msg_queue.mtype = (long) getppid() + POSITION;
+					msg_queue.mtype = (long) getppid() / POSITION;
 					sprintf(msg_queue.mtext, "%d", self_ind);
 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
@@ -166,14 +162,6 @@ int main(int argc, char * argv[], char** envp){
 		}
 	}
 	exit(EXIT_FAILURE);
-}
-
-/**
- * handles SIGTERM signal
- * @param signal SIGTERM signal
- */
-void handle_term(int signal){
-	exit(EXIT_SUCCESS);
 }
 
 /**
@@ -236,18 +224,22 @@ struct Pair delta_flag(int flag_x, int flag_y){
  * @param dir_y   direction on y
  */
 int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
-	int target, points, random, ret = -1;
+	int target_index, points, random, ret = -1;
 
-	target = (self_y + delta_y) * SO_BASE + (self_x + delta_x);
-	points = board[target].value;
+	target_index = target.y * SO_BASE + target.x;
+	points = board[target_index].value;
 	delta_x = abs(delta_x);
 	delta_y = abs(delta_y);
 	srand(time(NULL));
+
 	for(; delta_x > 0 || delta_y > 0;){
 		/*
 			check if target flag exists
 		 */
-		if(board[target].type != 'f') return -1;
+		if(board[target_index].type != 'f'){
+			delta_x = 0;
+			delta_y = 0;
+		}
 		if(delta_x > 0 && delta_y > 0){
 			/*
 				randomly moves on x or y
@@ -255,7 +247,7 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
 			random = rand() % 2;
 			switch(random){
 				case 0:
-					ret = step_x(dir_y);
+					ret = step_x(dir_x);
 					if (ret == 0) delta_x--;
 					break;
 				case 1:
@@ -278,11 +270,10 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
 			 */
 			ret = step_y(dir_y);
  			if (ret == 0) delta_y--;
-
 		}
 	}
 
-	if(target == self_ind){
+	if(target_index == self_ind){
 		return points;
 	}
 
@@ -317,6 +308,7 @@ int step_x(int dir){
 		self_ind = index;
 		self_x += dir;
 		SO_N_MOVES -= 1;
+		nanosleep(SO_MIN_HOLD_NSEC);
 	}
 	return 0;
 }
@@ -349,6 +341,7 @@ int step_y(int dir){
 		self_ind = index;
 		self_y += dir;
 		SO_N_MOVES -= 1;
+		nanosleep(SO_MIN_HOLD_NSEC);
 	}
 	return 0;
 }

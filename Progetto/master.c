@@ -29,7 +29,7 @@
 /*
 	enumerations
  */
-enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGTH = 4, FLAGS = 5};
+enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGHT = 4, FLAGS = 5};
 
 /*
 	structs
@@ -57,6 +57,8 @@ void ipc_rmv();
 void handle_alarm(int signal);
 int get_index(pid_t player_pid);
 
+void print_board_coo();
+
 /*
 	environment variables
  */
@@ -75,6 +77,8 @@ int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G,
 
 int shm_id, sem_board_id, msg_id;
 
+int *self_flags;
+
 struct sembuf sem_board;
 struct msgbuf msg_queue;
 
@@ -91,6 +95,7 @@ int main(int argc, char * argv[], char** env){
 	key_t msg_key;
 
 	pid_t child_pid;
+
 	int i;
 	long rcv;
 
@@ -159,10 +164,11 @@ int main(int argc, char * argv[], char** env){
 	}
 
 	fill_empty();
-    print_board();
 
 	printf("[MASTER] Hi i'm Master PID: %d.\n", getpid());
+	printf("[MASTER] That's the board.\n");
 	printf("------------------------------------------\n");
+	print_board();
 	/*
 		generates players, saves players pid, init score
 	 */
@@ -194,12 +200,11 @@ int main(int argc, char * argv[], char** env){
 		semop(sem_board_id, &sem_board, 1);
 		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 	}
-
+	printf("[MASTER] Players placed all their pawns.\n");
+	printf("[MASTER] Board updated.\n");
+	printf("------------------------------------------\n");
 	print_board();
-    printf("\n");
-	for(;;){
-    	new_round();
-	}
+    new_round();
     return 0;
 }
 
@@ -209,7 +214,7 @@ int main(int argc, char * argv[], char** env){
  */
 void new_round(){
 	static int count = 1;
-	int i, r, points, num_flags, cmd, player_pid, player_index;
+	int i, j, r, points, num_flags, cmd, player_pid, player_index, caught_ind;
 	long rcv;
 	char *split_msg;
 
@@ -217,18 +222,23 @@ void new_round(){
 	num_flags = SO_FLAG_MIN + rand() % ((SO_FLAG_MAX+1) - SO_FLAG_MIN);
 	points = SO_ROUND_SCORE;
 
+	self_flags = malloc(sizeof(int)*num_flags);
 	/*
-		places flags with random points
+		places flags with random points and saves all flags position
 	 */
-	for(i = num_flags; i > 0; i--){
+	for(i = num_flags, j = 0; i > 0; i--, j++){
 		do{
 			r = rand() % (SO_BASE * SO_ALTEZZA);
 		}while(board[r].type != 'e');
 		board[r].type = 'f';
+		self_flags[j] = r;
 		if(points > i) board[r].value = 1 + rand()% (points-i+1);
 		else if (points == i) board[r].value = 1;
 		points = points - (board[r].value);
 	}
+	printf("[MASTER] Flags have been placed.\n");
+	printf("[MASTER] Board updated.\n");
+	printf("------------------------------------------\n");
 	print_board();
   	printf("\n");
 
@@ -247,6 +257,12 @@ void new_round(){
 		msg_queue.mtype = (long)(player[i].pid);
 		sprintf(msg_queue.mtext, "%d", num_flags);
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
+
+		for(j = 0; j < num_flags; j++){
+			msg_queue.mtype = (long)(player[i].pid);
+			sprintf(msg_queue.mtext, "%d", self_flags[j]);
+			msgsnd(msg_id, &msg_queue, LENGTH, 0);
+		}
 	}
 
 	/*
@@ -269,31 +285,30 @@ void new_round(){
 	/*
 		waits for all flags to be caught
 	 */
-	while(1){
-		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
-		split_msg = strtok (msg_queue.mtext," ");
-		cmd = atoi(split_msg);
-		if(cmd == CAUGTH){
-			num_flags--;
-			split_msg = strtok (NULL, " ");
-			player_pid =  atoi(split_msg);
-			split_msg = strtok (NULL, " ");
-			points =  atoi(split_msg);
+	for(;;){
+		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0){
+			split_msg = strtok (msg_queue.mtext," ");
+			cmd = atoi(split_msg);
+			if(cmd == CAUGHT){
+				num_flags--;
+				split_msg = strtok (NULL, " ");
+				player_pid =  atoi(split_msg);
+				split_msg = strtok (NULL, " ");
+				points =  atoi(split_msg);
 
-			/*
-			sends all player the number of the remaining flags
-			 */
-			for(i = 0; i < SO_NUM_G; i++){
-				msg_queue.mtype = (long)(player[i].pid);
-				sprintf(msg_queue.mtext, "%d %d", FLAGS, num_flags);
-				msgsnd(msg_id, &msg_queue, LENGTH, 0);
+				player_index = get_index(player_pid);
+				player[player_index].score += points;
+				printf("[MASTER] Player %d caught a %d points flag.\n", player_pid, points);
+				printf("[MASTER] %d flags remaining.\n", num_flags);
+				printf("------------------------------------------\n");
+
+				/*
+				sends all player the number of the remaining flags
+				 */
+				 for(i = 0; i < SO_NUM_G; i++){
+					kill(player[i].pid, SIGALRM);
+ 			   	}
 			}
-
-			player_index = get_index(player_pid);
-			player[player_index].score += points;
-			printf("[MASTER] Player %d caught a %d flag.\n", player_pid, points);
-			printf("[MASTER] %d flags remaining.\n", num_flags);
-			printf("------------------------------------------\n");
 		}
 		if (num_flags <= 0) break;
 	}
@@ -308,11 +323,12 @@ void new_round(){
 	}
 
 	printf("[MASTER] Round #%d ended.\n", count);
-	printf("------------------------------------------\n");
-	printf("[MASTER] Board after round #%d.\n", count);
+	printf("[MASTER] Board updated.\n");
 	printf("------------------------------------------\n");
 	print_board();
 	count++;
+	free(self_flags);
+	new_round();
 }
 
 /**
@@ -366,7 +382,6 @@ void print_board(){
 						printf("\033[0m");
 						break;
 					default:
-						printf("[MASTER] Error player not in game\n");
 						break;
 				}
         	} else if(board[a*SO_BASE + b].type == 'f'){
@@ -375,6 +390,16 @@ void print_board(){
 				printf("\033[0m");
 			}
         }
+		printf("\n");
+    }
+	printf("------------------------------------------\n");
+}
+
+void print_board_coo(){
+	int i;
+
+	for(i=0; i<SO_BASE*SO_ALTEZZA; i++){
+        printf("( %d , %d )\n", board[i].x, board[i].y);
 		printf("\n");
     }
 	printf("------------------------------------------\n");
@@ -391,22 +416,27 @@ void handle_alarm(int signal){
 	printf("[MASTER] The game is ended\n");
 	printf("------------------------------------------\n");
 	print_board();
+
+	/*
+	print_board_coo();
+	*/
+
 	for(i=0; i<SO_NUM_G; i++){
-		printf("[MASTER] Player -> %d Score -> %d\n", player[i].pid, player[i].score);
 		kill(player[i].pid, SIGTERM);
+		printf("[MASTER] Player -> %d Score -> %d\n", player[i].pid, player[i].score);
 	}
 
 	/*
 		waits for all players to terminate their pawns
 	 */
 	while ((child_pid = wait(&status)) != -1) {
-		printf("[MASTER] Terminated player process...\n");
 	}
 	if (errno != ECHILD) {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
 		ipc_rmv();
 		exit(EXIT_FAILURE);
 	}
+	printf("[MASTER] Terminated player process...\n");
 	ipc_rmv();
 	printf("[MASTER] Bye bye.\n");
 	printf("------------------------------------------\n");
@@ -435,4 +465,5 @@ void ipc_rmv(){
 	semctl(sem_board_id, 0, IPC_RMID);
 	msgctl(msg_id, IPC_RMID, NULL);
 	free(player);
+	free(self_flags);
 }

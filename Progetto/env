@@ -9,7 +9,8 @@ export SO_FLAG_MIN=5
 export SO_FLAG_MAX=5
 export SO_ROUND_SCORE=10
 export SO_N_MOVES=10
-export SO_MAX_TIME=3
+export SO_MAX_TIME=25
+export SO_MIN_HOLD_NSEC=100000000
 
 
 source ~/.bash_profile
