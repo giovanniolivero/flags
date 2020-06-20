@@ -63,7 +63,7 @@ struct piece *board;
 struct sembuf sem_board;
 struct Pair target;
 
-int SO_BASE, SO_N_MOVES, SO_MIN_HOLD_NSEC;
+int SO_BASE, SO_ALTEZZA, SO_N_MOVES, SO_MIN_HOLD_NSEC;
 int sem_board_id, shm_id, msg_id;
 int self_x, self_y, self_ind;
 
@@ -74,6 +74,8 @@ int main(int argc, char * argv[], char** envp){
 	char * split_msg;
 
 	struct msgbuf msg_queue;
+	struct sigaction sa;
+	sigset_t my_mask;
 
 	key_t msg_key;
 
@@ -82,8 +84,15 @@ int main(int argc, char * argv[], char** envp){
 	FILE *msgid_file;
 
 	SO_BASE = atoi(getenv("SO_BASE"));
+	SO_ALTEZZA = atoi(getenv("SO_ALTEZZA"));
 	SO_N_MOVES = atoi(getenv("SO_N_MOVES"));
 	SO_MIN_HOLD_NSEC = atoi(getenv("SO_MIN_HOLD_NSEC"));
+
+	sa.sa_handler = &handle_term;
+	sa.sa_flags = 0;
+	sigemptyset(&my_mask);
+	sa.sa_mask = my_mask;
+	sigaction(SIGTERM, &sa, NULL);
 
 	shm_file = fopen(FILENAME_SHM, "r");
 	fscanf(shm_file, "%d", &shm_id);
@@ -236,10 +245,8 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
 		/*
 			check if target flag exists
 		 */
-		if(board[target_index].type != 'f'){
-			delta_x = 0;
-			delta_y = 0;
-		}
+		if(board[target_index].type != 'f') break;
+
 		if(delta_x > 0 && delta_y > 0){
 			/*
 				randomly moves on x or y
@@ -344,4 +351,8 @@ int step_y(int dir){
 		nanosleep(SO_MIN_HOLD_NSEC);
 	}
 	return 0;
+}
+
+void handle_term(int signal){
+	exit(SO_N_MOVES);
 }

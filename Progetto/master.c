@@ -29,7 +29,8 @@
 /*
 	enumerations
  */
-enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGHT = 4, FLAGS = 5};
+enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGHT = 4,
+	ALRM = 5};
 
 /*
 	structs
@@ -56,8 +57,6 @@ void new_round();
 void ipc_rmv();
 void handle_alarm(int signal);
 int get_index(pid_t player_pid);
-
-void print_board_coo();
 
 /*
 	environment variables
@@ -303,10 +302,13 @@ void new_round(){
 				printf("------------------------------------------\n");
 
 				/*
-				sends all player the number of the remaining flags
+					sends all player a caught flag notification
 				 */
 				 for(i = 0; i < SO_NUM_G; i++){
-					kill(player[i].pid, SIGALRM);
+					msg_queue.mtype = (long)(player[i].pid);
+ 					sprintf(msg_queue.mtext, "%d", ALRM);
+ 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
+
  			   	}
 			}
 		}
@@ -329,6 +331,7 @@ void new_round(){
 	count++;
 	free(self_flags);
 	new_round();
+
 }
 
 /**
@@ -395,16 +398,6 @@ void print_board(){
 	printf("------------------------------------------\n");
 }
 
-void print_board_coo(){
-	int i;
-
-	for(i=0; i<SO_BASE*SO_ALTEZZA; i++){
-        printf("( %d , %d )\n", board[i].x, board[i].y);
-		printf("\n");
-    }
-	printf("------------------------------------------\n");
-}
-
 /**
  * Handles SIGALRM signal: ends the game, terminates players and show final score
  * @param signal SIGALRM signal
@@ -417,10 +410,6 @@ void handle_alarm(int signal){
 	printf("------------------------------------------\n");
 	print_board();
 
-	/*
-	print_board_coo();
-	*/
-
 	for(i=0; i<SO_NUM_G; i++){
 		kill(player[i].pid, SIGTERM);
 		printf("[MASTER] Player -> %d Score -> %d\n", player[i].pid, player[i].score);
@@ -430,6 +419,7 @@ void handle_alarm(int signal){
 		waits for all players to terminate their pawns
 	 */
 	while ((child_pid = wait(&status)) != -1) {
+		printf("[MASTER] Player %d terminated -> status=0x%04X\n", child_pid, status);
 	}
 	if (errno != ECHILD) {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));

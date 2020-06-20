@@ -31,7 +31,7 @@
 	enumerations
  */
 enum cmd{START_ROUND = 0, END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3,
-	 		CAUGHT = 4, FLAGS = 5, POSITION = 6};
+	 		CAUGHT = 4, ALRM = 5, POSITION = 6};
 
 /*
 	structs
@@ -49,6 +49,7 @@ struct Pair {
 
 struct Flag {
 	int x, y;
+	char available;
 };
 
 struct pawn{
@@ -60,9 +61,10 @@ struct pawn{
 	function prototypes
  */
 void handle_term(int signal);
-void handle_alarm(int signal);
+void handle_alarm();
 void find_flags(struct Flag *flags);
 void save_flags();
+void update_flags();
 void free_all();
 int dist_flag(struct Pair flags, struct pawn pawn);
 struct Pair place_random();
@@ -247,7 +249,9 @@ int main(int argc, char * argv[], char** envp){
 					sprintf(msg_queue.mtext, "%d %d %d", CAUGHT, getpid(), points);
 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
-
+				case ALRM:
+					handle_alarm();
+					break;
 				default:
 					break;
 			}
@@ -301,6 +305,7 @@ void handle_term(int signal){
 	}
 
 	while ((child_pid = wait(&status)) != -1) {
+		printf("[PLAYER %d] Pawn %d terminated -> status=0x%04X\n", getpid(), child_pid, status);
 	}
 
 	if (errno != ECHILD) {
@@ -316,45 +321,44 @@ void handle_term(int signal){
 /**
  * for all pawns sends MOVE_TO msg
  * and coordinate (x,y) of the new target flag to be caught
- * @param signal SIGALRM
  */
-void handle_alarm(int signal){
+void handle_alarm(){
 	struct msgbuf msg_queue1;
 	long rcv_2;
 	int i, pawn_ind, target_ind;
 	struct Pair target;
 
-	num_flags--;
-	free(flags);
-	flags = (struct Flag*)malloc(sizeof(struct Flag)*num_flags);
-	save_flags();
+	if(num_flags > 0){
+		update_flags();
+		for(i = 0; i < SO_NUM_P; i++){
+			target_ind = targets[i].y * SO_BASE + targets[i].x;
+			if(board[target_ind].type != 'f'){
+				msg_queue1.mtype = (long)(self_pawns[i].pid);
+				sprintf(msg_queue1.mtext, "%d", POSITION);
+				msgsnd(msg_id, &msg_queue1, LENGTH, 0);
 
-	for(i = 0; i < SO_NUM_P; i++){
-		target_ind = targets[i].y * SO_BASE + targets[i].x;
-		if(board[target_ind].type != 'f'){
-			msg_queue1.mtype = (long)(self_pawns[i].pid);
-			sprintf(msg_queue1.mtext, "%d", POSITION);
-			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+				rcv_2 = (long) getpid() / POSITION;
+				msgrcv(msg_id, &msg_queue1, LENGTH, rcv_2, 0);
+				pawn_ind = atoi(msg_queue1.mtext);
 
-			rcv_2 = (long) getpid() / POSITION;
-			msgrcv(msg_id, &msg_queue1, LENGTH, rcv_2, 0);
-			pawn_ind = atoi(msg_queue1.mtext);
+				self_pawns[i].x = board[pawn_ind].x;
+				self_pawns[i].y = board[pawn_ind].y;
 
-			self_pawns[i].x = board[pawn_ind].x;
-			self_pawns[i].y = board[pawn_ind].y;
-
-			target = min_dist_flag(self_pawns[i]);
-			targets[i].x = target.x;
-			targets[i].y = target.y;
-			msg_queue1.mtype = (long)(self_pawns[i].pid);
-			sprintf(msg_queue1.mtext, "%d", MOVE_TO);
-			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
-			msg_queue1.mtype = (long)(self_pawns[i].pid);
-			sprintf(msg_queue1.mtext, "%d %d", target.x, target.y);
-			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
-			msg_queue1.mtype = (long)(self_pawns[i].pid);
-			sprintf(msg_queue1.mtext, "%d", START_MOVING);
-			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+				target = min_dist_flag(self_pawns[i]);
+				if(target.x > -1 && target.y > -1){
+					targets[i].x = target.x;
+					targets[i].y = target.y;
+					msg_queue1.mtype = (long)(self_pawns[i].pid);
+					sprintf(msg_queue1.mtext, "%d", MOVE_TO);
+					msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+					msg_queue1.mtype = (long)(self_pawns[i].pid);
+					sprintf(msg_queue1.mtext, "%d %d", target.x, target.y);
+					msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+					msg_queue1.mtype = (long)(self_pawns[i].pid);
+					sprintf(msg_queue1.mtext, "%d", START_MOVING);
+					msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+				}
+			}
 		}
 	}
 }
@@ -366,9 +370,21 @@ void save_flags(){
 	int i;
 
 	for(i = 0; i < num_flags; i++){
-		if(board[flags_index[i]].type = 'f'){
-			flags[i].x = board[flags_index[i]].x;
-			flags[i].y = board[flags_index[i]].y;
+		flags[i].x = board[flags_index[i]].x;
+		flags[i].y = board[flags_index[i]].y;
+		flags[i].available = 'Y';
+	}
+}
+
+/**
+ * [update_flags description]
+ */
+void update_flags(){
+	int i;
+
+	for(i = 0; i < num_flags; i++){
+		if(board[flags_index[i]].type != 'f'){
+			flags[i].available = 'N';
 		}
 	}
 }
@@ -379,20 +395,28 @@ void save_flags(){
  * @return      coordinates (x,y) of the flag
  */
 struct Pair min_dist_flag(struct pawn pawn){
-	int i, index, dist, min = SO_BASE*SO_ALTEZZA + 1;
+	int i, index = -1, dist, min = SO_BASE*SO_ALTEZZA + 1;
 	struct Pair p, current_flag;
 
+	p.x = -1;
+	p.y = -1;
+
 	for(i = 0; i < num_flags; i++){
-		current_flag.x = flags[i].x;
-		current_flag.y = flags[i].y;
-		dist = dist_flag(current_flag, pawn);
-		if(dist < min) {
-			min = dist;
-			index = i;
+		if(flags[i].available == 'Y'){
+			current_flag.x = flags[i].x;
+			current_flag.y = flags[i].y;
+			dist = dist_flag(current_flag, pawn);
+			if(dist < min) {
+				min = dist;
+				index = i;
+			}
 		}
 	}
-	p.x = flags[index].x;
-	p.y = flags[index].y;
+
+	if (index > -1){
+		p.x = flags[index].x;
+		p.y = flags[index].y;
+	}
 	return p;
 }
 
