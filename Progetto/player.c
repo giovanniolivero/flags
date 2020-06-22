@@ -13,6 +13,8 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <limits.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define TEST_ERROR    if (errno) {fprintf(stderr, \
 					   "%s:%d: PID=%5d: Error %d (%s)\n",\
@@ -25,7 +27,7 @@
 #define FILENAME_SHM  "shm_file.txt"
 #define FILENAME_SEM_BOARD "sem_board_file.txt"
 #define FILENAME_MSGID  "msgid_file.txt"
-#define LENGTH 120
+#define LENGTH 500
 
 /*
 	enumerations
@@ -150,8 +152,6 @@ int main(int argc, char * argv[], char** envp){
 	if (msg_id == -1) TEST_ERROR;
 
 	printf("[PLAYER %d] Joined the game.\n", getpid());
-	printf("------------------------------------------\n");
-
 	rcv = (long) getpid();
 
 	/*
@@ -297,15 +297,20 @@ struct Pair place_random(){
  * @param signal SIGTERM
  */
 void handle_term(int signal){
-	int i, status;
+	int i, status, num_bytes, points, cmd;
 	pid_t child_pid;
+	long rcv;
+	char * split_msg;
+	struct msgbuf msg_queue;
 
 	for(i = 0; i< SO_NUM_P; i++){
 		kill(self_pawns[i].pid, SIGTERM);
 	}
 
 	while ((child_pid = wait(&status)) != -1) {
-		printf("[PLAYER %d] Pawn %d terminated -> status=0x%04X\n", getpid(), child_pid, status);
+		/*
+		printf("[PLAYER %d] Pawn %d terminated -> status=0x%04Xn", getpid(), child_pid, status);
+		 */
 	}
 
 	if (errno != ECHILD) {
@@ -313,7 +318,22 @@ void handle_term(int signal){
 		free_all();
 		exit(EXIT_FAILURE);
 	}
-	printf("[PLAYER %d] Logged out.\n", getpid());
+
+	rcv = (long) getpid();
+	for(;;){
+		if((num_bytes = msgrcv(msg_id, &msg_queue, LENGTH, rcv, IPC_NOWAIT) >0)){
+			split_msg = strtok (msg_queue.mtext," ");
+			cmd = atoi(split_msg);
+			if(cmd == CAUGHT){
+				split_msg = strtok (NULL, " ");
+				points =  atoi(split_msg);
+				msg_queue.mtype = (long) getppid();
+				sprintf(msg_queue.mtext, "%d %d %d", CAUGHT, getpid(), points);
+				msgsnd(msg_id, &msg_queue, LENGTH, 0);
+			}
+		}else break;
+	}
+
 	free_all();
 	exit(EXIT_SUCCESS);
 }
@@ -324,41 +344,74 @@ void handle_term(int signal){
  */
 void handle_alarm(){
 	struct msgbuf msg_queue1;
+	char * split_msg;
 	long rcv_2;
-	int i, pawn_ind, target_ind;
+	int i, target_ind, pawn_x, pawn_y;
 	struct Pair target;
 
-	if(num_flags > 0){
-		update_flags();
-		for(i = 0; i < SO_NUM_P; i++){
-			target_ind = targets[i].y * SO_BASE + targets[i].x;
-			if(board[target_ind].type != 'f'){
-				msg_queue1.mtype = (long)(self_pawns[i].pid);
-				sprintf(msg_queue1.mtext, "%d", POSITION);
-				msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+	int fifo_fd, BUF_SIZE=100;
+	char *readbuf;
+	char *my_fifo;
 
-				rcv_2 = (long) getpid() / POSITION;
-				msgrcv(msg_id, &msg_queue1, LENGTH, rcv_2, 0);
-				pawn_ind = atoi(msg_queue1.mtext);
+	update_flags();
 
-				self_pawns[i].x = board[pawn_ind].x;
-				self_pawns[i].y = board[pawn_ind].y;
+	for(i = 0; i < SO_NUM_P; i++){
+		target_ind = targets[i].y * SO_BASE + targets[i].x;
 
-				target = min_dist_flag(self_pawns[i]);
-				if(target.x > -1 && target.y > -1){
-					targets[i].x = target.x;
-					targets[i].y = target.y;
-					msg_queue1.mtype = (long)(self_pawns[i].pid);
-					sprintf(msg_queue1.mtext, "%d", MOVE_TO);
-					msgsnd(msg_id, &msg_queue1, LENGTH, 0);
-					msg_queue1.mtype = (long)(self_pawns[i].pid);
-					sprintf(msg_queue1.mtext, "%d %d", target.x, target.y);
-					msgsnd(msg_id, &msg_queue1, LENGTH, 0);
-					msg_queue1.mtype = (long)(self_pawns[i].pid);
-					sprintf(msg_queue1.mtext, "%d", START_MOVING);
-					msgsnd(msg_id, &msg_queue1, LENGTH, 0);
-				}
+		if(board[target_ind].type != 'f'){
+
+			readbuf = malloc(sizeof(char) * BUF_SIZE);
+			my_fifo = malloc(sizeof(char) * BUF_SIZE);
+
+			msg_queue1.mtype = (long)(self_pawns[i].pid);
+			sprintf(msg_queue1.mtext, "%d", POSITION);
+			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+
+			sprintf(my_fifo,"fifo_%d\n",getpid());
+
+			/* Create the FIFO if it does not exist */
+			mkfifo(my_fifo, S_IRUSR | S_IWUSR);
+
+			fifo_fd = open(my_fifo, O_RDONLY);
+			if(read(fifo_fd, readbuf, BUF_SIZE)) {
+				pawn_x = atoi(readbuf);
 			}
+			if(read(fifo_fd, readbuf, BUF_SIZE)) {
+				pawn_y = atoi(readbuf);
+			}
+			close(fifo_fd);
+
+			free(readbuf);
+			free(my_fifo);
+
+			/*
+			rcv_2 = (long) (getpid() / POSITION);
+			msgrcv(msg_id, &msg_queue1, LENGTH, rcv_2, 0);
+			split_msg = strtok (msg_queue1.mtext," ");
+			pawn_x = atoi(split_msg);
+			split_msg = strtok (NULL," ");
+			pawn_y = atoi(split_msg);
+			printf("[DBG] received %d %d\n", pawn_x, pawn_y);
+			*/
+
+			self_pawns[i].x = pawn_x;
+			self_pawns[i].y = pawn_y;
+
+			target = min_dist_flag(self_pawns[i]);
+			if(target.x > -1 && target.y > -1){
+				targets[i].x = target.x;
+				targets[i].y = target.y;
+				msg_queue1.mtype = (long)(self_pawns[i].pid);
+				sprintf(msg_queue1.mtext, "%d", MOVE_TO);
+				msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+				msg_queue1.mtype = (long)(self_pawns[i].pid);
+				sprintf(msg_queue1.mtext, "%d %d", target.x, target.y);
+				msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+				msg_queue1.mtype = (long)(self_pawns[i].pid);
+				sprintf(msg_queue1.mtext, "%d", START_MOVING);
+				msgsnd(msg_id, &msg_queue1, LENGTH, 0);
+			}
+
 		}
 	}
 }

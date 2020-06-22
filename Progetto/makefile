@@ -1,4 +1,4 @@
-CFLAGS= -std=c89 -pedantic
+CFLAGS= -std=c89 -pedantic 
 
 main: non-clean clean run
 
@@ -9,10 +9,10 @@ non-clean: master.o player.o pawn.o
 
 master.o:
 	gcc $(CFLAGS) -c master.c
-	
+
 player.o:
 	gcc $(CFLAGS) -c player.c
-	
+
 pawn.o:
 	gcc $(CFLAGS) -c pawn.c
 

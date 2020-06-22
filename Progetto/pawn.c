@@ -12,6 +12,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #define TEST_ERROR    if (errno) {fprintf(stderr, \
 					   "%s:%d: PID=%5d: Error %d (%s)\n",\
@@ -24,7 +26,7 @@
 #define FILENAME_SHM  "shm_file.txt"
 #define FILENAME_SEM_BOARD "sem_board_file.txt"
 #define FILENAME_MSGID  "msgid_file.txt"
-#define LENGTH 120
+#define LENGTH 500
 
 /*
 	enumerations
@@ -65,12 +67,12 @@ struct Pair target;
 
 int SO_BASE, SO_ALTEZZA, SO_N_MOVES, SO_MIN_HOLD_NSEC;
 int sem_board_id, shm_id, msg_id;
-int self_x, self_y, self_ind;
+int self_x, self_y, self_ind, caught_points;
+short send_flg;
 
 int main(int argc, char * argv[], char** envp){
 
 	long rcv;
-	int points;
 	char * split_msg;
 
 	struct msgbuf msg_queue;
@@ -79,9 +81,13 @@ int main(int argc, char * argv[], char** envp){
 
 	key_t msg_key;
 
-	FILE *shm_file;
-	FILE *sem_board_file;
-	FILE *msgid_file;
+	FILE * shm_file;
+	FILE * sem_board_file;
+	FILE * msgid_file;
+
+	int fifo_fd, str_len, BUF_SIZE=100;
+	char * my_msg;
+	char * my_fifo;
 
 	SO_BASE = atoi(getenv("SO_BASE"));
 	SO_ALTEZZA = atoi(getenv("SO_ALTEZZA"));
@@ -150,21 +156,43 @@ int main(int argc, char * argv[], char** envp){
 					starts moving to the target flag
 				 */
 				case START_MOVING:
-					points = move_to(target);
-					if(points > 0){
+					send_flg = 0;
+					caught_points = move_to(target);
+					if(caught_points > 0){
 						msg_queue.mtype = (long) getppid();
-						sprintf(msg_queue.mtext, "%d %d", CAUGHT, points);
-						msgsnd(msg_id, &msg_queue, LENGTH, 0);
+						sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);
+						send_flg = msgsnd(msg_id, &msg_queue, LENGTH, 0);
+						caught_points = 0;
+
 					}
 					break;
 				/*
 					sends self coordinates (x,y)
 				 */
 				case POSITION:
-					msg_queue.mtype = (long) getppid() / POSITION;
-					sprintf(msg_queue.mtext, "%d", self_ind);
-					msgsnd(msg_id, &msg_queue, LENGTH, 0);
-					break;
+
+					my_msg = malloc(sizeof(char) * BUF_SIZE);
+					my_fifo = malloc(sizeof(char) * BUF_SIZE);
+
+					sprintf(my_fifo,"fifo_%d\n",getppid());
+
+					/* Open FIFO in write mode*/
+					fifo_fd = open(my_fifo, O_WRONLY);
+
+					/* Assemble the message*/
+					str_len = sprintf(my_msg,"%d\n",self_x);
+
+					/* Write message to FIFO*/
+					write(fifo_fd, my_msg, str_len);
+
+					str_len = sprintf(my_msg,"%d\n",self_y);
+					write(fifo_fd, my_msg, str_len);
+
+					close(fifo_fd);
+
+					free(my_msg);
+					free(my_fifo);
+
 				default:
 					break;
 			}
@@ -354,5 +382,14 @@ int step_y(int dir){
 }
 
 void handle_term(int signal){
+	struct msgbuf msg_queue;
+	
+	if(send_flg == 0 && caught_points > 0){
+		msg_queue.mtype = (long) getppid();
+		sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);
+		msgsnd(msg_id, &msg_queue, LENGTH, 0);
+	}
+
+
 	exit(SO_N_MOVES);
 }

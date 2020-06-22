@@ -24,13 +24,13 @@
 #define FILENAME_SHM  "shm_file.txt"
 #define FILENAME_SEM_BOARD "sem_board_file.txt"
 #define FILENAME_MSGID  "msgid_file.txt"
-#define LENGTH 120
+#define LENGTH 500
 
 /*
 	enumerations
  */
 enum cmd{START_ROUND = 0, END_ROUND = 1, START_MOVING = 3, CAUGHT = 4,
-	ALRM = 5};
+	ALRM = 5 };
 
 /*
 	structs
@@ -119,18 +119,21 @@ int main(int argc, char * argv[], char** env){
 	semctl(sem_board_id, SO_BASE*SO_ALTEZZA, SETVAL, 0);
 	sem_board.sem_num = SO_BASE*SO_ALTEZZA;
 	sem_board.sem_flg = 0;
+	printf("[DBG] DONE\n");
 
-    shm_id = shmget(IPC_PRIVATE, sizeof(struct piece)*60*20,
+    shm_id = shmget(IPC_PRIVATE, sizeof(struct piece)*SO_BASE*SO_ALTEZZA,
 					IPC_CREAT | IPC_EXCL | 0600);
     board = (struct piece*) shmat(shm_id, NULL, 0);
 
     shm_file = fopen(FILENAME_SHM, "w");
 	fprintf(shm_file, "%d\n", shm_id);
 	fclose(shm_file);
+	printf("[DBG] DONE\n");
 
 	sem_board_file = fopen(FILENAME_SEM_BOARD, "w");
 	fprintf(sem_board_file, "%d\n", sem_board_id);
 	fclose(sem_board_file);
+	printf("[DBG] DONE\n");
 
 	for (msg_key = IPC_PRIVATE+1; msg_key != IPC_PRIVATE; msg_key++) {
 
@@ -161,6 +164,7 @@ int main(int argc, char * argv[], char** env){
 		fprintf(stderr,	"Nessuna chiave disponibile!\n");
 		return(-1);
 	}
+	printf("[DBG] DONE\n");
 
 	fill_empty();
 
@@ -199,6 +203,7 @@ int main(int argc, char * argv[], char** env){
 		semop(sem_board_id, &sem_board, 1);
 		msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0);
 	}
+	printf("------------------------------------------\n");
 	printf("[MASTER] Players placed all their pawns.\n");
 	printf("[MASTER] Board updated.\n");
 	printf("------------------------------------------\n");
@@ -235,7 +240,7 @@ void new_round(){
 		else if (points == i) board[r].value = 1;
 		points = points - (board[r].value);
 	}
-	printf("[MASTER] Flags have been placed.\n");
+	printf("[MASTER] %d flags have been placed.\n", num_flags);
 	printf("[MASTER] Board updated.\n");
 	printf("------------------------------------------\n");
 	print_board();
@@ -284,8 +289,8 @@ void new_round(){
 	/*
 		waits for all flags to be caught
 	 */
-	for(;;){
-		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0){
+	while(num_flags > 0){
+		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)){
 			split_msg = strtok (msg_queue.mtext," ");
 			cmd = atoi(split_msg);
 			if(cmd == CAUGHT){
@@ -298,7 +303,6 @@ void new_round(){
 				player_index = get_index(player_pid);
 				player[player_index].score += points;
 				printf("[MASTER] Player %d caught a %d points flag.\n", player_pid, points);
-				printf("[MASTER] %d flags remaining.\n", num_flags);
 				printf("------------------------------------------\n");
 
 				/*
@@ -308,11 +312,9 @@ void new_round(){
 					msg_queue.mtype = (long)(player[i].pid);
  					sprintf(msg_queue.mtext, "%d", ALRM);
  					msgsnd(msg_id, &msg_queue, LENGTH, 0);
-
  			   	}
 			}
 		}
-		if (num_flags <= 0) break;
 	}
 
 	/*
@@ -403,29 +405,57 @@ void print_board(){
  * @param signal SIGALRM signal
  */
 void handle_alarm(int signal){
-	int i, status;
+	int i, status, cmd, player_pid, points, player_index, num_bytes;
 	pid_t child_pid;
+	char * split_msg;
+	long rcv;
 
-	printf("[MASTER] The game is ended\n");
-	printf("------------------------------------------\n");
-	print_board();
+	shmctl(shm_id, IPC_RMID, NULL);
 
 	for(i=0; i<SO_NUM_G; i++){
 		kill(player[i].pid, SIGTERM);
-		printf("[MASTER] Player -> %d Score -> %d\n", player[i].pid, player[i].score);
 	}
 
 	/*
 		waits for all players to terminate their pawns
 	 */
 	while ((child_pid = wait(&status)) != -1) {
-		printf("[MASTER] Player %d terminated -> status=0x%04X\n", child_pid, status);
+		/*
+		printf("[PLAYER %d] Logged out.n", child_pid);
+		 */
 	}
 	if (errno != ECHILD) {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
 		ipc_rmv();
 		exit(EXIT_FAILURE);
 	}
+
+	rcv = (long) getpid();
+	for(;;){
+		if((num_bytes = msgrcv(msg_id, &msg_queue, LENGTH, rcv, IPC_NOWAIT) >0)){
+			split_msg = strtok (msg_queue.mtext," ");
+			cmd = atoi(split_msg);
+			if(cmd == CAUGHT){
+				split_msg = strtok (NULL, " ");
+				player_pid =  atoi(split_msg);
+				split_msg = strtok (NULL, " ");
+				points =  atoi(split_msg);
+
+				player_index = get_index(player_pid);
+				player[player_index].score += points;
+				printf("[MASTER] Player %d caught a %d points flag.\n", player_pid, points);
+				printf("------------------------------------------\n");
+			}
+		}else break;
+	}
+
+	for(i=0; i<SO_NUM_G; i++){
+		printf("[MASTER] Player -> %d Score -> %d\n", player[i].pid, player[i].score);
+	}
+
+	printf("[MASTER] The game is ended\n");
+	printf("------------------------------------------\n");
+	print_board();
 	printf("[MASTER] Terminated player process...\n");
 	ipc_rmv();
 	printf("[MASTER] Bye bye.\n");
@@ -451,7 +481,6 @@ int get_index(pid_t player_pid){
  * removes all ipcs, shared memory and free players
  */
 void ipc_rmv(){
-	shmctl(shm_id, IPC_RMID, NULL);
 	semctl(sem_board_id, 0, IPC_RMID);
 	msgctl(msg_id, IPC_RMID, NULL);
 	free(player);
