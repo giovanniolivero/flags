@@ -73,11 +73,11 @@ Player *player;
 
 char *args[] = {"./player", NULL};
 
+static int num_round = 1, tot_moves;
+
 int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G,
 	SO_FLAG_MIN, SO_FLAG_MAX, SO_ROUND_SCORE,
 	SO_MAX_TIME, SO_N_MOVES;
-
-static int num_round = 1, tot_moves;
 
 int time_start, time_end;
 int shm_id, sem_board_id, msg_id;
@@ -89,20 +89,18 @@ struct msgbuf msg_queue;
 
 int main(int argc, char * argv[], char** env){
 
+	int i;
+	long rcv;
+	pid_t child_pid;
+
 	struct sigaction sa;
 	sigset_t my_mask;
-
 
 	FILE * shm_file;
 	FILE * sem_board_file;
 	FILE * msgid_file;
 
 	key_t msg_key;
-
-	pid_t child_pid;
-
-	int i;
-	long rcv;
 
 	SO_FLAG_MIN = atoi(getenv("SO_FLAG_MIN"));
 	SO_FLAG_MAX = atoi(getenv("SO_FLAG_MAX"));
@@ -221,7 +219,7 @@ int main(int argc, char * argv[], char** env){
 
 /**
  * Init a new round, generate #flags, place flags on the board
- * and communuìicate with players
+ * and communicate with players, recoursivly create a new round
  */
 void new_round(){
 	int i, j, r, points, num_flags, cmd, player_pid, player_index, caught_ind;
@@ -496,7 +494,7 @@ void ipc_rmv(){
 }
 
 /**
- * [print_status description]
+ * prints the game's status
  */
 void print_status(){
 	int i;
@@ -509,7 +507,7 @@ void print_status(){
 }
 
 /**
- * [print_statistics description]
+ * prints the final statistics at the end of the simulation
  */
 void print_statistics(){
 	int i, used_moves, points, tot_points = 0, time_played;

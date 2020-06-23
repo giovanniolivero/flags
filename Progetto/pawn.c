@@ -73,7 +73,10 @@ short send_flg;
 
 int main(int argc, char * argv[], char** envp){
 
+	int fifo_fd, str_len;
 	long rcv;
+	char * my_msg;
+	char * my_fifo;
 	char * split_msg;
 
 	struct msgbuf msg_queue;
@@ -85,10 +88,6 @@ int main(int argc, char * argv[], char** envp){
 	FILE * shm_file;
 	FILE * sem_board_file;
 	FILE * msgid_file;
-
-	int fifo_fd, str_len;
-	char * my_msg;
-	char * my_fifo;
 
 	SO_BASE = atoi(getenv("SO_BASE"));
 	SO_ALTEZZA = atoi(getenv("SO_ALTEZZA"));
@@ -125,7 +124,7 @@ int main(int argc, char * argv[], char** envp){
 	rcv = (long) getpid();
 
 	/*
-		gets self position from msg
+		gets self position from msg queue
 	 */
 	if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 		split_msg = strtok (msg_queue.mtext," ");
@@ -177,13 +176,12 @@ int main(int argc, char * argv[], char** envp){
 
 					sprintf(my_fifo,"fifo_%d\n",getppid());
 
-					/* Open FIFO in write mode*/
+					/*
+						opens FIFO in write mode and writes the msg
+					 */
 					fifo_fd = open(my_fifo, O_WRONLY);
 
-					/* Assemble the message*/
 					str_len = sprintf(my_msg,"%d\n",self_x);
-
-					/* Write message to FIFO*/
 					write(fifo_fd, my_msg, str_len);
 
 					str_len = sprintf(my_msg,"%d\n",self_y);
@@ -382,6 +380,11 @@ int step_y(int dir){
 	return 0;
 }
 
+/**
+ * handles SIGTERM signal, sends a caught msg if the process
+ * hasn't send it before SIGTERM
+ * @param signal SIGTERM
+ */
 void handle_term(int signal){
 	struct msgbuf msg_queue;
 

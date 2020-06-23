@@ -83,26 +83,24 @@ struct Flag *flags;
 struct Pair *targets;
 
 char *args[] = {"./pawn", NULL};
+char *my_fifo;
 
 int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G;
 int sem_board_id, shm_id, msg_id;
 int num_flags;
 int *flags_index;
 
-char *my_fifo;
-
 int main(int argc, char * argv[], char** envp){
 
 	int i, points, cmd, pawn_ind;
 	long rcv, rcv_2, r;
 	char * split_msg;
+	pid_t child_pid;
 	struct Pair target;
+	struct Pair pair;
 
 	struct msgbuf msg_queue;
 
-	pid_t child_pid;
-
-	struct Pair pair;
 	struct sigaction sa, saa;
 	sigset_t my_mask, my_maskk;
 
@@ -231,7 +229,7 @@ int main(int argc, char * argv[], char** envp){
 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
 				/*
-
+					when the round ended frees all allocations
 				 */
 				case END_ROUND:
 					free_all();
@@ -256,6 +254,9 @@ int main(int argc, char * argv[], char** envp){
 					sprintf(msg_queue.mtext, "%d %d %d", CAUGHT, getpid(), points);
 					msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					break;
+				/*
+					when a flag is caught, check if directions need to be changed
+				 */
 				case ALRM:
 					handle_alarm();
 					break;
@@ -300,7 +301,8 @@ struct Pair place_random(){
 }
 
 /**
- * handles SIGTERM signal, terminates all pawns and frees all structs
+ * handles SIGTERM signal, terminates all pawns, sends all caught msgs if the process
+ * hasn't send it before SIGTERM and frees all structs
  * @param signal SIGTERM
  */
 void handle_term(int signal){
@@ -379,7 +381,9 @@ void handle_alarm(){
 			sprintf(msg_queue1.mtext, "%d", POSITION);
 			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
 
-			/* Create the FIFO if it does not exist */
+			/*
+				creates the FIFO if it does not exist
+			 */
 			mkfifo(my_fifo, S_IRUSR | S_IWUSR);
 
 			fifo_fd = open(my_fifo, O_RDONLY);
@@ -416,7 +420,7 @@ void handle_alarm(){
 }
 
 /**
- * [save_flags description]
+ * saves all flags and marks all of them as available 'Y'
  */
 void save_flags(){
 	int i;
@@ -429,13 +433,13 @@ void save_flags(){
 }
 
 /**
- * [update_flags description]
+ * updates the flag's list, if a flag has been caught
  */
 void update_flags(){
 	int i;
 
 	for(i = 0; i < num_flags; i++){
-		if(board[flags_index[i]].type != 'f'){
+		if(board[flags_index[i]].type != 'f' && flags[i].available = 'Y'){
 			flags[i].available = 'N';
 		}
 	}
