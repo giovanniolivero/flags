@@ -272,7 +272,7 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
 		/*
 			check if target flag exists
 		 */
-		if(board[target_index].type != 'f') break;
+		if(board[target_index].type != 'f') return -1;
 
 		if(delta_x > 0 && delta_y > 0){
 			/*
@@ -387,7 +387,6 @@ int step_y(int dir){
  */
 void handle_term(int signal){
 	struct msgbuf msg_queue;
-
 	if(send_flg == 0 && caught_points > 0){
 		msg_queue.mtype = (long) getppid();
 		sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);

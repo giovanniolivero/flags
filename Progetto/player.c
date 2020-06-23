@@ -110,6 +110,8 @@ int main(int argc, char * argv[], char** envp){
 	FILE *sem_board_file;
 	FILE *msgid_file;
 
+	mkfifo(my_fifo, S_IRUSR | S_IWUSR);
+
 	sa.sa_handler = &handle_term;
 	sa.sa_flags = 0;
 	sigemptyset(&my_mask);
@@ -381,11 +383,6 @@ void handle_alarm(){
 			sprintf(msg_queue1.mtext, "%d", POSITION);
 			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
 
-			/*
-				creates the FIFO if it does not exist
-			 */
-			mkfifo(my_fifo, S_IRUSR | S_IWUSR);
-
 			fifo_fd = open(my_fifo, O_RDONLY);
 			if(read(fifo_fd, readbuf, BUF_SIZE)) {
 				pawn_x = atoi(readbuf);
@@ -439,7 +436,7 @@ void update_flags(){
 	int i;
 
 	for(i = 0; i < num_flags; i++){
-		if(board[flags_index[i]].type != 'f' && flags[i].available = 'Y'){
+		if(board[flags_index[i]].type != 'f'){
 			flags[i].available = 'N';
 		}
 	}

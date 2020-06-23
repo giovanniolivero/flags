@@ -12,6 +12,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <time.h>
 
 #define TEST_ERROR    if (errno) {fprintf(stderr, \
 					   "%s:%d: PID=%5d: Error %d (%s)\n",\
@@ -53,7 +54,7 @@ typedef struct Player {
 void fill_empty();
 void print_board();
 void end_simulation();
-void new_round();
+void new_round(Player * player);
 void ipc_rmv();
 void print_status();
 void print_statistics();
@@ -79,13 +80,12 @@ int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G,
 	SO_FLAG_MIN, SO_FLAG_MAX, SO_ROUND_SCORE,
 	SO_MAX_TIME, SO_N_MOVES;
 
-int time_start, time_end;
+time_t time_start, time_end;
 int shm_id, sem_board_id, msg_id;
 
 int *self_flags;
 
 struct sembuf sem_board;
-struct msgbuf msg_queue;
 
 int main(int argc, char * argv[], char** env){
 
@@ -95,6 +95,8 @@ int main(int argc, char * argv[], char** env){
 
 	struct sigaction sa;
 	sigset_t my_mask;
+
+	struct msgbuf msg_queue;
 
 	FILE * shm_file;
 	FILE * sem_board_file;
@@ -213,7 +215,7 @@ int main(int argc, char * argv[], char** env){
 	printf("[MASTER] Board updated.\n");
 	printf("------------------------------------------\n");
 	print_board();
-    new_round();
+    new_round(player);
     return 0;
 }
 
@@ -221,12 +223,13 @@ int main(int argc, char * argv[], char** env){
  * Init a new round, generate #flags, place flags on the board
  * and communicate with players, recoursivly create a new round
  */
-void new_round(){
+void new_round(Player * player){
 	int i, j, r, points, num_flags, cmd, player_pid, player_index, caught_ind;
 	long rcv;
 	char *split_msg;
+	struct msgbuf msg_queue;
 
-	srand(time(NULL));
+	srand(getpid());
 	num_flags = SO_FLAG_MIN + rand() % ((SO_FLAG_MAX+1) - SO_FLAG_MIN);
 	points = SO_ROUND_SCORE;
 
@@ -300,15 +303,15 @@ void new_round(){
 			if(cmd == CAUGHT){
 				num_flags--;
 				split_msg = strtok (NULL, " ");
-				player_pid =  atoi(split_msg);
+				player_pid = (pid_t) atoi(split_msg);
 				split_msg = strtok (NULL, " ");
 				points =  atoi(split_msg);
 
 				player_index = get_index(player_pid);
 				player[player_index].score += points;
+
 				printf("[MASTER] Player %d caught a %d points flag.\n", player_pid, points);
 				printf("------------------------------------------\n");
-
 				/*
 					sends all player a caught flag notification
 				 */
@@ -336,7 +339,7 @@ void new_round(){
 	print_board();
 	num_round++;
 	free(self_flags);
-	new_round();
+	new_round(player);
 }
 
 /**
@@ -412,14 +415,15 @@ void handle_alarm(int signal){
 	pid_t child_pid;
 	char * split_msg;
 	long rcv;
+	struct msgbuf msg_queue;
 
-	shmctl(shm_id, IPC_RMID, NULL);
 	time_end = time(NULL);
+
+	printf("[DBG] not here??\n");
 
 	for(i=0; i<SO_NUM_G; i++){
 		kill(player[i].pid, SIGTERM);
 	}
-
 	/*
 		waits for all players to terminate their pawns
 	 */
@@ -430,8 +434,10 @@ void handle_alarm(int signal){
 		 if (WIFEXITED(status)) {
  			player_left_moves = WEXITSTATUS(status);
  		}
+		printf("[DBG] update not here??\n");
 		i = get_index(child_pid);
 		player[i].moves = player_left_moves;
+		printf("[DBG] updated not here??\n");
 	}
 	if (errno != ECHILD) {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
@@ -439,17 +445,20 @@ void handle_alarm(int signal){
 		exit(EXIT_FAILURE);
 	}
 
+	printf("[DBG] not here??\n");
+
 	rcv = (long) getpid();
 	for(;;){
 		if((num_bytes = msgrcv(msg_id, &msg_queue, LENGTH, rcv, IPC_NOWAIT) >0)){
 			split_msg = strtok (msg_queue.mtext," ");
 			cmd = atoi(split_msg);
 			if(cmd == CAUGHT){
+				printf("[DBG] not here??\n");
+
 				split_msg = strtok (NULL, " ");
 				player_pid =  atoi(split_msg);
 				split_msg = strtok (NULL, " ");
 				points =  atoi(split_msg);
-
 				player_index = get_index(player_pid);
 				player[player_index].score += points;
 				printf("[MASTER] Player %d caught a %d points flag.\n", player_pid, points);
@@ -457,7 +466,6 @@ void handle_alarm(int signal){
 			}
 		}else break;
 	}
-
 	printf("[MASTER] The game is ended\n");
 	printf("------------------------------------------\n");
 	print_status();
@@ -477,8 +485,8 @@ void handle_alarm(int signal){
 int get_index(pid_t player_pid){
 	int i;
 
-	for(i = 0; i < SO_NUM_G; i++){
-		if (player[i].pid == player_pid) return i;
+	for(i=0; i<SO_NUM_G; i++){
+		if(player[i].pid == player_pid) return i;
 	}
 	return -1;
 }
@@ -487,6 +495,7 @@ int get_index(pid_t player_pid){
  * removes all ipcs, shared memory and free players
  */
 void ipc_rmv(){
+	shmctl(shm_id, IPC_RMID, NULL);
 	semctl(sem_board_id, 0, IPC_RMID);
 	msgctl(msg_id, IPC_RMID, NULL);
 	free(player);
