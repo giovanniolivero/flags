@@ -28,6 +28,7 @@
 #define FILENAME_SEM_BOARD "sem_board_file.txt"
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 500
+#define BUF_SIZE 100
 
 /*
 	enumerations
@@ -88,6 +89,8 @@ int sem_board_id, shm_id, msg_id;
 int num_flags;
 int *flags_index;
 
+char *my_fifo;
+
 int main(int argc, char * argv[], char** envp){
 
 	int i, points, cmd, pawn_ind;
@@ -128,6 +131,10 @@ int main(int argc, char * argv[], char** envp){
 
 	self_pawns = (struct pawn*)malloc(sizeof(struct pawn)*SO_NUM_P);
 	targets = (struct Pair*)malloc(sizeof(struct Pair)*SO_NUM_P);
+
+	my_fifo = malloc(sizeof(char) * BUF_SIZE);
+	sprintf(my_fifo,"fifo_%d\n",getpid());
+
 	shm_file = fopen(FILENAME_SHM, "r");
 
 	fscanf(shm_file, "%d", &shm_id);
@@ -301,6 +308,7 @@ void handle_term(int signal){
 	pid_t child_pid;
 	long rcv;
 	char * split_msg;
+	char * path;
 	struct msgbuf msg_queue;
 
 	for(i = 0; i< SO_NUM_P; i++){
@@ -335,6 +343,11 @@ void handle_term(int signal){
 		}else break;
 	}
 
+	path = malloc(sizeof(char)*80);
+	sprintf(path, "./");
+	strcat(path, my_fifo);
+	remove(path);
+	free(path);
 	free_all();
 	exit(left_moves);
 }
@@ -350,9 +363,8 @@ void handle_alarm(){
 	int i, target_ind, pawn_x, pawn_y;
 	struct Pair target;
 
-	int fifo_fd, BUF_SIZE=100;
+	int fifo_fd;
 	char *readbuf;
-	char *my_fifo;
 
 	update_flags();
 
@@ -362,13 +374,10 @@ void handle_alarm(){
 		if(board[target_ind].type != 'f'){
 
 			readbuf = malloc(sizeof(char) * BUF_SIZE);
-			my_fifo = malloc(sizeof(char) * BUF_SIZE);
 
 			msg_queue1.mtype = (long)(self_pawns[i].pid);
 			sprintf(msg_queue1.mtext, "%d", POSITION);
 			msgsnd(msg_id, &msg_queue1, LENGTH, 0);
-
-			sprintf(my_fifo,"fifo_%d\n",getpid());
 
 			/* Create the FIFO if it does not exist */
 			mkfifo(my_fifo, S_IRUSR | S_IWUSR);
@@ -383,7 +392,6 @@ void handle_alarm(){
 			close(fifo_fd);
 
 			free(readbuf);
-			free(my_fifo);
 
 			self_pawns[i].x = pawn_x;
 			self_pawns[i].y = pawn_y;
@@ -482,6 +490,7 @@ int dist_flag(struct Pair flag, struct pawn pawn){
  * free all memory allocations
  */
 void free_all(){
+	free(my_fifo);
 	free(self_pawns);
 	free(flags);
 	free(targets);

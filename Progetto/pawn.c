@@ -27,6 +27,7 @@
 #define FILENAME_SEM_BOARD "sem_board_file.txt"
 #define FILENAME_MSGID  "msgid_file.txt"
 #define LENGTH 500
+#define BUF_SIZE 100
 
 /*
 	enumerations
@@ -85,7 +86,7 @@ int main(int argc, char * argv[], char** envp){
 	FILE * sem_board_file;
 	FILE * msgid_file;
 
-	int fifo_fd, str_len, BUF_SIZE=100;
+	int fifo_fd, str_len;
 	char * my_msg;
 	char * my_fifo;
 
