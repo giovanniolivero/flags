@@ -383,13 +383,12 @@ int step_y(int dir){
 
 void handle_term(int signal){
 	struct msgbuf msg_queue;
-	
+
 	if(send_flg == 0 && caught_points > 0){
 		msg_queue.mtype = (long) getppid();
 		sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
-
 
 	exit(SO_N_MOVES);
 }

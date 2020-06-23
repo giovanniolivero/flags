@@ -297,7 +297,7 @@ struct Pair place_random(){
  * @param signal SIGTERM
  */
 void handle_term(int signal){
-	int i, status, num_bytes, points, cmd;
+	int i, status, pawn_left_moves, num_bytes, points, cmd, left_moves = 0;
 	pid_t child_pid;
 	long rcv;
 	char * split_msg;
@@ -308,9 +308,10 @@ void handle_term(int signal){
 	}
 
 	while ((child_pid = wait(&status)) != -1) {
-		/*
-		printf("[PLAYER %d] Pawn %d terminated -> status=0x%04Xn", getpid(), child_pid, status);
-		 */
+		 if (WIFEXITED(status)) {
+	         pawn_left_moves = WEXITSTATUS(status);
+	         left_moves += pawn_left_moves;
+	     }
 	}
 
 	if (errno != ECHILD) {
@@ -321,7 +322,7 @@ void handle_term(int signal){
 
 	rcv = (long) getpid();
 	for(;;){
-		if((num_bytes = msgrcv(msg_id, &msg_queue, LENGTH, rcv, IPC_NOWAIT) >0)){
+		if((num_bytes = msgrcv(msg_id, &msg_queue, LENGTH, rcv, IPC_NOWAIT) > 0)){
 			split_msg = strtok (msg_queue.mtext," ");
 			cmd = atoi(split_msg);
 			if(cmd == CAUGHT){
@@ -335,7 +336,7 @@ void handle_term(int signal){
 	}
 
 	free_all();
-	exit(EXIT_SUCCESS);
+	exit(left_moves);
 }
 
 /**
@@ -383,16 +384,6 @@ void handle_alarm(){
 
 			free(readbuf);
 			free(my_fifo);
-
-			/*
-			rcv_2 = (long) (getpid() / POSITION);
-			msgrcv(msg_id, &msg_queue1, LENGTH, rcv_2, 0);
-			split_msg = strtok (msg_queue1.mtext," ");
-			pawn_x = atoi(split_msg);
-			split_msg = strtok (NULL," ");
-			pawn_y = atoi(split_msg);
-			printf("[DBG] received %d %d\n", pawn_x, pawn_y);
-			*/
 
 			self_pawns[i].x = pawn_x;
 			self_pawns[i].y = pawn_y;
