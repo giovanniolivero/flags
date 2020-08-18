@@ -319,7 +319,7 @@ void handle_term(int signal){
 	struct msgbuf msg_queue;
 
 	for(i = 0; i< SO_NUM_P; i++){
-		kill(self_pawns[i].pid, SIGTERM);
+		kill(self_pawns[i].pid, SIGKILL);
 	}
 
 	while ((child_pid = wait(&status)) != -1) {
