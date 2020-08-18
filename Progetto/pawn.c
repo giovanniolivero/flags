@@ -53,6 +53,7 @@ struct Pair{
 	function prototypes
  */
 void handle_term(int signal);
+void free_all();
 int move_to(struct Pair target);
 int step_x(int dir);
 int step_y(int dir);
@@ -66,17 +67,18 @@ struct piece *board;
 struct sembuf sem_board;
 struct Pair target;
 
+char * my_msg;
+char * my_fifo;
+
 int SO_BASE, SO_ALTEZZA, SO_N_MOVES, SO_MIN_HOLD_NSEC;
 int sem_board_id, shm_id, msg_id;
 int self_x, self_y, self_ind, caught_points;
-short send_flg;
+short send_flg, already_free;
 
 int main(int argc, char * argv[], char** envp){
 
 	int fifo_fd, str_len;
 	long rcv;
-	char * my_msg;
-	char * my_fifo;
 	char * split_msg;
 
 	struct msgbuf msg_queue;
@@ -98,7 +100,7 @@ int main(int argc, char * argv[], char** envp){
 	sa.sa_flags = 0;
 	sigemptyset(&my_mask);
 	sa.sa_mask = my_mask;
-	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGKILL, &sa, NULL);
 
 	shm_file = fopen(FILENAME_SHM, "r");
 	fscanf(shm_file, "%d", &shm_id);
@@ -120,6 +122,13 @@ int main(int argc, char * argv[], char** envp){
 		}
 	msg_id = msgget(msg_key, 0600);
 	if (msg_id == -1) TEST_ERROR;
+
+	/*
+		INIT
+	*/
+	sem_board.sem_op = 1;
+	sem_board.sem_num= SO_BASE*SO_ALTEZZA + 1;
+	semop(sem_board_id, &sem_board, 1);
 
 	rcv = (long) getpid();
 
@@ -170,9 +179,9 @@ int main(int argc, char * argv[], char** envp){
 					sends self coordinates (x,y)
 				 */
 				case POSITION:
-
 					my_msg = malloc(sizeof(char) * BUF_SIZE);
 					my_fifo = malloc(sizeof(char) * BUF_SIZE);
+					already_free = 1;
 
 					sprintf(my_fifo,"fifo_%d\n",getppid());
 
@@ -186,12 +195,8 @@ int main(int argc, char * argv[], char** envp){
 
 					str_len = sprintf(my_msg,"%d\n",self_y);
 					write(fifo_fd, my_msg, str_len);
-
 					close(fifo_fd);
-
-					free(my_msg);
-					free(my_fifo);
-
+					free_all();
 				default:
 					break;
 			}
@@ -244,7 +249,6 @@ int move_to(struct Pair target){
  * @return        a Pair (delta_x, delta_y)
  */
 struct Pair delta_flag(int flag_x, int flag_y){
-	int dist_x, dist_y;
 	struct Pair delta;
 
 	delta.x = flag_x - self_x;
@@ -387,11 +391,30 @@ int step_y(int dir){
  */
 void handle_term(int signal){
 	struct msgbuf msg_queue;
+
+	printf("[DBG] Leaving\n");
+
+	free_all();
+	if (SO_N_MOVES < 0) {
+			fprintf(stderr, "[ERR] Something goes wrong.\n");
+			exit(EXIT_FAILURE);
+	}
+
 	if(send_flg == 0 && caught_points > 0){
 		msg_queue.mtype = (long) getppid();
 		sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);
 		msgsnd(msg_id, &msg_queue, LENGTH, 0);
 	}
-
 	exit(SO_N_MOVES);
+}
+
+/**
+ * free all memory allocations
+ */
+void free_all(){
+	if(already_free){
+		free(my_msg);
+		free(my_fifo);
+		already_free = 0;
+	}
 }

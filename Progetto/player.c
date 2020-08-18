@@ -84,16 +84,18 @@ struct Pair *targets;
 
 char *args[] = {"./pawn", NULL};
 char *my_fifo;
+char *readbuf;
 
 int SO_BASE, SO_ALTEZZA, SO_NUM_P, SO_NUM_G;
 int sem_board_id, shm_id, msg_id;
 int num_flags;
 int *flags_index;
 
+
 int main(int argc, char * argv[], char** envp){
 
-	int i, points, cmd, pawn_ind;
-	long rcv, rcv_2, r;
+	int i, points, cmd;
+	long rcv;
 	char * split_msg;
 	pid_t child_pid;
 	struct Pair target;
@@ -311,8 +313,9 @@ void handle_term(int signal){
 	int i, status, pawn_left_moves, num_bytes, points, cmd, left_moves = 0;
 	pid_t child_pid;
 	long rcv;
-	char * split_msg;
-	char * path;
+	char *path;
+	char *split_msg;
+
 	struct msgbuf msg_queue;
 
 	for(i = 0; i< SO_NUM_P; i++){
@@ -320,6 +323,7 @@ void handle_term(int signal){
 	}
 
 	while ((child_pid = wait(&status)) != -1) {
+		printf("[PLAYER] WAITIN...\n");
 		 if (WIFEXITED(status)) {
 	         pawn_left_moves = WEXITSTATUS(status);
 	         left_moves += pawn_left_moves;
@@ -331,6 +335,8 @@ void handle_term(int signal){
 		free_all();
 		exit(EXIT_FAILURE);
 	}
+
+	printf("[PLAYER] ALL PAWN KILLED.\n");
 
 	rcv = (long) getpid();
 	for(;;){
@@ -347,12 +353,14 @@ void handle_term(int signal){
 		}else break;
 	}
 
+
 	path = malloc(sizeof(char)*80);
 	sprintf(path, "./");
 	strcat(path, my_fifo);
 	remove(path);
 	free(path);
 	free_all();
+	printf("[PLAYER] BYEEE.\n");
 	exit(left_moves);
 }
 
@@ -362,13 +370,10 @@ void handle_term(int signal){
  */
 void handle_alarm(){
 	struct msgbuf msg_queue1;
-	char * split_msg;
-	long rcv_2;
 	int i, target_ind, pawn_x, pawn_y;
 	struct Pair target;
 
 	int fifo_fd;
-	char *readbuf;
 
 	update_flags();
 
@@ -496,4 +501,6 @@ void free_all(){
 	free(flags);
 	free(targets);
 	free(flags_index);
+	readbuf = NULL;
+	free(readbuf);
 }

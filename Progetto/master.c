@@ -54,7 +54,7 @@ typedef struct Player {
 void fill_empty();
 void print_board();
 void end_simulation();
-void new_round(Player * player);
+void new_round();
 void ipc_rmv();
 void print_status();
 void print_statistics();
@@ -124,8 +124,9 @@ int main(int argc, char * argv[], char** env){
 
 	player = (Player*)malloc(sizeof(Player)*SO_NUM_G);
 
-	sem_board_id = semget(IPC_PRIVATE, 1 + SO_BASE*SO_ALTEZZA, 0600);
+	sem_board_id = semget(IPC_PRIVATE, 1 + SO_BASE*SO_ALTEZZA + 1, 0600);
 	semctl(sem_board_id, SO_BASE*SO_ALTEZZA, SETVAL, 0);
+	semctl(sem_board_id, SO_BASE*SO_ALTEZZA + 1, SETVAL, 0);
 	sem_board.sem_num = SO_BASE*SO_ALTEZZA;
 	sem_board.sem_flg = 0;
 
@@ -215,7 +216,15 @@ int main(int argc, char * argv[], char** env){
 	printf("[MASTER] Board updated.\n");
 	printf("------------------------------------------\n");
 	print_board();
-    new_round(player);
+
+	/*
+		Waits init
+	*/
+	sem_board.sem_op = -SO_NUM_P*SO_NUM_G;
+	sem_board.sem_num= SO_BASE*SO_ALTEZZA + 1;
+	semop(sem_board_id, &sem_board, 1);
+
+	new_round();
     return 0;
 }
 
@@ -223,8 +232,8 @@ int main(int argc, char * argv[], char** env){
  * Init a new round, generate #flags, place flags on the board
  * and communicate with players, recoursivly create a new round
  */
-void new_round(Player * player){
-	int i, j, r, points, num_flags, cmd, player_pid, player_index, caught_ind;
+void new_round(){
+	int i, j, r, points, num_flags, cmd, player_pid, player_index;
 	long rcv;
 	char *split_msg;
 	struct msgbuf msg_queue;
@@ -339,7 +348,7 @@ void new_round(Player * player){
 	print_board();
 	num_round++;
 	free(self_flags);
-	new_round(player);
+	new_round();
 }
 
 /**
@@ -413,13 +422,11 @@ void print_board(){
 void handle_alarm(int signal){
 	int i, status, player_left_moves = -1, cmd, player_pid, points, player_index, num_bytes;
 	pid_t child_pid;
-	char * split_msg;
+	char *split_msg;
 	long rcv;
 	struct msgbuf msg_queue;
 
 	time_end = time(NULL);
-
-	printf("[DBG] not here??\n");
 
 	for(i=0; i<SO_NUM_G; i++){
 		kill(player[i].pid, SIGTERM);
@@ -428,16 +435,12 @@ void handle_alarm(int signal){
 		waits for all players to terminate their pawns
 	 */
 	while ((child_pid = wait(&status)) != -1) {
-		/*
-		printf("[PLAYER %d] Logged out.n", child_pid);
-		 */
-		 if (WIFEXITED(status)) {
+		if (WIFEXITED(status)) {
  			player_left_moves = WEXITSTATUS(status);
  		}
-		printf("[DBG] update not here??\n");
 		i = get_index(child_pid);
 		player[i].moves = player_left_moves;
-		printf("[DBG] updated not here??\n");
+		printf("[PLAYER %d] Logged out.\n", child_pid);
 	}
 	if (errno != ECHILD) {
 		fprintf(stderr, "Error #%d: %s\n", errno, strerror(errno));
@@ -445,16 +448,12 @@ void handle_alarm(int signal){
 		exit(EXIT_FAILURE);
 	}
 
-	printf("[DBG] not here??\n");
-
 	rcv = (long) getpid();
 	for(;;){
 		if((num_bytes = msgrcv(msg_id, &msg_queue, LENGTH, rcv, IPC_NOWAIT) >0)){
 			split_msg = strtok (msg_queue.mtext," ");
 			cmd = atoi(split_msg);
 			if(cmd == CAUGHT){
-				printf("[DBG] not here??\n");
-
 				split_msg = strtok (NULL, " ");
 				player_pid =  atoi(split_msg);
 				split_msg = strtok (NULL, " ");
@@ -499,6 +498,7 @@ void ipc_rmv(){
 	semctl(sem_board_id, 0, IPC_RMID);
 	msgctl(msg_id, IPC_RMID, NULL);
 	free(player);
+	self_flags = NULL;
 	free(self_flags);
 }
 
@@ -519,7 +519,7 @@ void print_status(){
  * prints the final statistics at the end of the simulation
  */
 void print_statistics(){
-	int i, used_moves, points, tot_points = 0, time_played;
+	int i, used_moves, points=-1, tot_points = 0, time_played;
 	printf("[MASTER] Statistics:\n");
 	printf("---\n");
 	printf("[MASTER] #%d round played.\n", num_round);

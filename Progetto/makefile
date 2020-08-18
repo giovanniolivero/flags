@@ -1,6 +1,11 @@
-CFLAGS= -std=c89 -pedantic 
+CFLAGS= -std=c89 -pedantic -Wall -Wextra
 
-main: non-clean clean run
+SHELL := /bin/bash
+
+main: rule non-clean clean run
+
+rule:
+	source .bash_profile
 
 non-clean: master.o player.o pawn.o
 	gcc master.o -o master
