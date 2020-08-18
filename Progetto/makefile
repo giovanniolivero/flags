@@ -1,6 +1,6 @@
-CFLAGS= -std=c89 -pedantic -Wall -Wextra
-
 SHELL := /bin/bash
+
+CFLAGS= -std=c89 -pedantic -Wall -Wextra
 
 main: rule non-clean clean run
 
