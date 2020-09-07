@@ -1,0 +1,10 @@
+export SO_BASE=120
+export SO_ALTEZZA=40
+export SO_NUM_P=400
+export SO_NUM_G=4
+export SO_FLAG_MIN=5
+export SO_FLAG_MAX=40
+export SO_ROUND_SCORE=200
+export SO_N_MOVES=200
+export SO_MAX_TIME=1
+export SO_MIN_HOLD_NSEC=100000000

@@ -1,11 +1,10 @@
 SHELL := /bin/bash
 
-CFLAGS= -std=c89 -pedantic -Wall -Wextra
+CFLAGS= -std=c89 -pedantic
 
-main: rule non-clean clean run
+include ./easy.bash_profile
 
-rule:
-	source .bash_profile
+main: non-clean clean
 
 non-clean: master.o player.o pawn.o
 	gcc master.o -o master

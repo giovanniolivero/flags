@@ -12,27 +12,26 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 
 #define TEST_ERROR    if (errno) {fprintf(stderr, \
-					   "%s:%d: PID=%5d: Error %d (%s)\n",\
+					   "[PAWN_ERROR] %s:%d: PID=%5d: Error %d (%s)\n",\
 					   __FILE__,\
 					   __LINE__,\
 					   getpid(),\
 					   errno,\
 					   strerror(errno));}
 
-#define FILENAME_SHM  "shm_file.txt"
-#define FILENAME_SEM_BOARD "sem_board_file.txt"
-#define FILENAME_MSGID  "msgid_file.txt"
+#define FILENAME_INI  "./ipcs.ini"
 #define LENGTH 500
-#define BUF_SIZE 100
+#define BUF_SIZE 500
 
 /*
 	enumerations
  */
-enum cmd{MOVE_TO = 2, START_MOVING = 3, CAUGHT = 4, POSITION = 6};
+enum cmd{END_ROUND = 1, MOVE_TO = 2, START_MOVING = 3, CAUGHT = 4, POSITION = 6};
 enum dir{LEFT = -1, DOWN = -1, RIGHT = 1, UP = 1, NONE = 0};
 
 /*
@@ -53,7 +52,6 @@ struct Pair{
 	function prototypes
  */
 void handle_term(int signal);
-void free_all();
 int move_to(struct Pair target);
 int step_x(int dir);
 int step_y(int dir);
@@ -67,74 +65,115 @@ struct piece *board;
 struct sembuf sem_board;
 struct Pair target;
 
-char * my_msg;
-char * my_fifo;
-
 int SO_BASE, SO_ALTEZZA, SO_N_MOVES, SO_MIN_HOLD_NSEC;
-int sem_board_id, shm_id, msg_id;
+int sem_board_id, shm_id, msg_id, prt_msg_id;
 int self_x, self_y, self_ind, caught_points;
-short send_flg, already_free;
 
-int main(int argc, char * argv[], char** envp){
+int main(int argc, char * argv[], char** env){
+    long rcv;
 
-	int fifo_fd, str_len;
-	long rcv;
-	char * split_msg;
+	char *line; /* line to write in ipcs.ini */
+	char *split_msg; /* msg to split in rcv() */
 
-	struct msgbuf msg_queue;
-	struct sigaction sa;
+	size_t len = 0;
+    ssize_t read;
+
+    struct msgbuf msg_queue;
+	struct msgbuf prt_msg_queue;
+
+    struct sigaction sa;
 	sigset_t my_mask;
 
-	key_t msg_key;
+    key_t msg_key;
+	key_t prt_msg_key;
 
-	FILE * shm_file;
-	FILE * sem_board_file;
-	FILE * msgid_file;
+	FILE *ini_file;
 
-	SO_BASE = atoi(getenv("SO_BASE"));
-	SO_ALTEZZA = atoi(getenv("SO_ALTEZZA"));
-	SO_N_MOVES = atoi(getenv("SO_N_MOVES"));
-	SO_MIN_HOLD_NSEC = atoi(getenv("SO_MIN_HOLD_NSEC"));
+    SO_BASE = atoi(getenv("SO_BASE"));
+    SO_ALTEZZA = atoi(getenv("SO_ALTEZZA"));
+    SO_N_MOVES = atoi(getenv("SO_N_MOVES"));
+    SO_MIN_HOLD_NSEC = atoi(getenv("SO_MIN_HOLD_NSEC"));
 
-	sa.sa_handler = &handle_term;
+	line = malloc(sizeof(char)*100);
+	bzero(line, 100);
+
+	/*
+		sigaction init
+	*/
+    sa.sa_handler = &handle_term;
 	sa.sa_flags = 0;
 	sigemptyset(&my_mask);
 	sa.sa_mask = my_mask;
-	sigaction(SIGKILL, &sa, NULL);
+	sigaction(SIGTERM, &sa, NULL);
 
-	shm_file = fopen(FILENAME_SHM, "r");
-	fscanf(shm_file, "%d", &shm_id);
-	fclose(shm_file);
+	/*
+		starts reading from ipcs.ini
+	*/
+	ini_file = fopen(FILENAME_INI, "r");
+
+	if(ini_file == NULL) {
+    	perror("Error opening file");
+    	return(-1);
+   	}
+
+	/*
+		gets semaphore id in ipcs.ini
+	*/
+   	if( (read = getline(&line, &len, ini_file)) != -1 ) {
+    	sem_board_id = atoi(line);
+		bzero(line, 100);
+   	}
+
+	/*
+		gets shared memory id in ipcs.ini
+	*/
+	if( (read = getline(&line, &len, ini_file)) != -1 ) {
+    	shm_id = atoi(line);
+		bzero(line, 100);
+   	}
 
 	board = (struct piece*) shmat(shm_id, NULL, 0);
 
-	sem_board_file = fopen(FILENAME_SEM_BOARD, "r");
-	fscanf(sem_board_file, "%d", &sem_board_id);
-	fclose(sem_board_file);
-
-	msgid_file = fopen(FILENAME_MSGID, "r");
-	fscanf(msgid_file, "%d", &msg_key);
-	fclose(msgid_file);
+	/*
+		gets primary message key in ipcs.ini
+	*/
+	if( (read = getline(&line, &len, ini_file)) != -1 ) {
+    	msg_key = atoi(line);
+		bzero(line, 100);
+   	}
 
 	if (msg_key == IPC_PRIVATE) {
-			fprintf(stderr, "Chiave %d errata\n", IPC_PRIVATE);
-			return(-1);
-		}
+		fprintf(stderr, "[PAWN_ERROR] PAWN %d wrong key %d\n", getpid(), IPC_PRIVATE);
+		return(-1);
+	}
 	msg_id = msgget(msg_key, 0600);
 	if (msg_id == -1) TEST_ERROR;
 
 	/*
-		INIT
+		gets priority message key in ipcs.ini
 	*/
-	sem_board.sem_op = 1;
-	sem_board.sem_num= SO_BASE*SO_ALTEZZA + 1;
-	semop(sem_board_id, &sem_board, 1);
+	if( (read = getline(&line, &len, ini_file)) != -1 ) {
+    	prt_msg_key = atoi(line);
+   	}
 
-	rcv = (long) getpid();
+	if (prt_msg_key == IPC_PRIVATE) {
+		fprintf(stderr, "[PAWN_ERROR] PAWN %d wrong key %d\n", getpid(), IPC_PRIVATE);
+		return(-1);
+	}
+	prt_msg_id = msgget(prt_msg_key, 0600);
+	if (prt_msg_id == -1) TEST_ERROR;
+
+    /*
+        Confirm INIT
+    */
+    sem_board.sem_op = 1;
+	sem_board.sem_num = SO_BASE*SO_ALTEZZA + 1;
+	semop(sem_board_id, &sem_board, 1);
 
 	/*
 		gets self position from msg queue
 	 */
+    rcv = (long) getpid();
 	if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 		split_msg = strtok (msg_queue.mtext," ");
 		self_x = atoi(split_msg);
@@ -151,6 +190,7 @@ int main(int argc, char * argv[], char** envp){
 		if(msgrcv(msg_id, &msg_queue, LENGTH, rcv, 0)>0) {
 			split_msg = strtok (msg_queue.mtext," ");
 			switch (atoi(split_msg)) {
+
 				/*
 					gets coordinates (x,y) of the target flag
 				 */
@@ -161,48 +201,47 @@ int main(int argc, char * argv[], char** envp){
 					split_msg = strtok (NULL, " ");
 					target.y =  atoi(split_msg);
 					break;
+
 				/*
 					starts moving to the target flag
 				 */
 				case START_MOVING:
-					send_flg = 0;
 					caught_points = move_to(target);
+
+					/*
+						Tells the player that a flag has been caught
+						if points are not zero
+					*/
 					if(caught_points > 0){
 						msg_queue.mtype = (long) getppid();
-						sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);
-						send_flg = msgsnd(msg_id, &msg_queue, LENGTH, 0);
-						caught_points = 0;
-
+						sprintf(msg_queue.mtext, "%d %d %d", CAUGHT, caught_points, self_ind);
+						msgsnd(msg_id, &msg_queue, LENGTH, 0);
 					}
 					break;
+
 				/*
 					sends self coordinates (x,y)
 				 */
 				case POSITION:
-					my_msg = malloc(sizeof(char) * BUF_SIZE);
-					my_fifo = malloc(sizeof(char) * BUF_SIZE);
-					already_free = 1;
+					prt_msg_queue.mtype = (long) getppid();
+					sprintf(prt_msg_queue.mtext, "%d %d", self_x, self_y);
+					msgsnd(prt_msg_id, &prt_msg_queue, LENGTH, 0);
+					break;
 
-					sprintf(my_fifo,"fifo_%d\n",getppid());
-
-					/*
-						opens FIFO in write mode and writes the msg
-					 */
-					fifo_fd = open(my_fifo, O_WRONLY);
-
-					str_len = sprintf(my_msg,"%d\n",self_x);
-					write(fifo_fd, my_msg, str_len);
-
-					str_len = sprintf(my_msg,"%d\n",self_y);
-					write(fifo_fd, my_msg, str_len);
-					close(fifo_fd);
-					free_all();
+				/*
+					sends moves left
+				*/
+				case END_ROUND:
+					prt_msg_queue.mtype = (long) getppid();
+					sprintf(prt_msg_queue.mtext, "%d", SO_N_MOVES);
+					msgsnd(prt_msg_id, &prt_msg_queue, LENGTH, 0);
+					break;
 				default:
 					break;
 			}
 		}
 	}
-	exit(EXIT_FAILURE);
+    exit(EXIT_FAILURE);
 }
 
 /**
@@ -324,6 +363,14 @@ int path_to_flag(int delta_x, int delta_y, int dir_x, int dir_y){
  */
 int step_x(int dir){
 	int ret_val, index;
+	int milisec = SO_MIN_HOLD_NSEC;
+
+	/*
+		struct needed in nanosleep(...)
+	*/
+	struct timespec req = {0};
+	req.tv_sec = 0;
+	req.tv_nsec = milisec * 1000000L;
 
 	index = self_y * SO_BASE + self_x + dir;
 	sem_board.sem_op = -1;
@@ -346,7 +393,7 @@ int step_x(int dir){
 		self_ind = index;
 		self_x += dir;
 		SO_N_MOVES -= 1;
-		nanosleep(SO_MIN_HOLD_NSEC);
+		nanosleep(&req, (struct timespec *)NULL);
 	}
 	return 0;
 }
@@ -357,6 +404,14 @@ int step_x(int dir){
  */
 int step_y(int dir){
 	int ret_val, index;
+	int milisec = SO_MIN_HOLD_NSEC;
+
+	/*
+		struct needed in nanosleep(...)
+	*/
+	struct timespec req = {0};
+	req.tv_sec = 0;
+	req.tv_nsec = milisec * 1000000L;
 
 	index = (self_y + dir) * SO_BASE + self_x;
 	sem_board.sem_op = -1;
@@ -379,42 +434,21 @@ int step_y(int dir){
 		self_ind = index;
 		self_y += dir;
 		SO_N_MOVES -= 1;
-		nanosleep(SO_MIN_HOLD_NSEC);
+		nanosleep(&req, (struct timespec *)NULL);
 	}
 	return 0;
 }
 
 /**
- * handles SIGTERM signal, sends a caught msg if the process
- * hasn't send it before SIGTERM
+ * handles SIGTERM signal, exits with left moves
  * @param signal SIGTERM
  */
 void handle_term(int signal){
-	struct msgbuf msg_queue;
 
-	printf("[DBG] Leaving\n");
-
-	free_all();
 	if (SO_N_MOVES < 0) {
-			fprintf(stderr, "[ERR] Something goes wrong.\n");
-			exit(EXIT_FAILURE);
+			fprintf(stderr, "[PAWN_ERROR] PAWN %d something goes wrong.\n", getpid());
+			_exit(EXIT_FAILURE);
 	}
 
-	if(send_flg == 0 && caught_points > 0){
-		msg_queue.mtype = (long) getppid();
-		sprintf(msg_queue.mtext, "%d %d", CAUGHT, caught_points);
-		msgsnd(msg_id, &msg_queue, LENGTH, 0);
-	}
-	exit(SO_N_MOVES);
-}
-
-/**
- * free all memory allocations
- */
-void free_all(){
-	if(already_free){
-		free(my_msg);
-		free(my_fifo);
-		already_free = 0;
-	}
+	_exit(SO_N_MOVES);
 }
